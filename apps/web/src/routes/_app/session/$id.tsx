@@ -144,6 +144,112 @@ function isToolPart(part: Part): part is ToolPart {
   return part.type === "tool";
 }
 
+const IMAGE_EXTS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".avif",
+  ".bmp",
+  ".svg",
+]);
+const DOWNLOAD_EXTS = new Set([
+  ".pdf",
+  ".mp4",
+  ".webm",
+  ".mov",
+  ".mp3",
+  ".wav",
+  ".zip",
+  ".csv",
+  ".xlsx",
+  ".docx",
+  ".pptx",
+]);
+
+function fileBaseName(p: string) {
+  return p.replace(/\/+$/, "").split("/").pop() || p;
+}
+function fileExt(p: string) {
+  const m = p.toLowerCase().match(/\.[a-z0-9]+$/);
+  return m ? m[0] : "";
+}
+function serveFileUrl(path: string, download = false) {
+  return `/api/fs/file?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}`;
+}
+
+// Absolute paths ending in a viewable/downloadable extension.
+const ARTIFACT_PATH_RE =
+  /(\/[^\s"'`\n)]+?\.(?:png|jpe?g|gif|webp|avif|bmp|svg|pdf|mp4|webm|mov|mp3|wav|zip|csv|xlsx|docx|pptx))/gi;
+
+// Collect file paths the agent produced. Primary signal is tool output text
+// (e.g. grok-image prints "saved: /path"), which works in any directory.
+// patch-part files are also included (present only in git repos).
+function collectArtifactPaths(message: MessageWithParts): string[] {
+  const seen = new Set<string>();
+  for (const part of message.parts) {
+    if (part.type === "tool") {
+      const output = (part.state as { output?: unknown } | undefined)?.output;
+      if (typeof output === "string") {
+        for (const m of output.matchAll(ARTIFACT_PATH_RE)) seen.add(m[1]);
+      }
+    } else if (part.type === "patch" && Array.isArray(part.files)) {
+      for (const f of part.files) if (typeof f === "string") seen.add(f);
+    }
+  }
+  return [...seen];
+}
+
+// Images render inline (click → open in a new tab); other known types render
+// as a download link. Source/text files are skipped so code sessions don't get
+// spammed with download links.
+function MessageArtifacts({ message }: { message: MessageWithParts }) {
+  const files = collectArtifactPaths(message);
+
+  const images = files.filter((f) => IMAGE_EXTS.has(fileExt(f)));
+  const downloads = files.filter(
+    (f) => !IMAGE_EXTS.has(fileExt(f)) && DOWNLOAD_EXTS.has(fileExt(f)),
+  );
+  if (images.length === 0 && downloads.length === 0) return null;
+
+  return (
+    <div className="mt-2 ml-6 flex flex-col gap-2">
+      {images.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {images.map((f) => (
+            <a
+              key={f}
+              href={serveFileUrl(f)}
+              target="_blank"
+              rel="noreferrer"
+              title={fileBaseName(f)}
+            >
+              <img
+                src={serveFileUrl(f)}
+                alt={fileBaseName(f)}
+                loading="lazy"
+                className="max-h-64 max-w-full rounded-lg border object-contain"
+              />
+            </a>
+          ))}
+        </div>
+      )}
+      {downloads.map((f) => (
+        <a
+          key={f}
+          href={serveFileUrl(f, true)}
+          download={fileBaseName(f)}
+          className="inline-flex w-fit items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm hover:bg-muted"
+        >
+          <span aria-hidden>📄</span>
+          <span className="truncate">{fileBaseName(f)}</span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function parseToolQuestions(part: ToolPart): QuestionInfo[] {
   const input = (part.state?.input || {}) as Record<string, unknown>;
   const rawQuestions = input.questions;
@@ -782,6 +888,7 @@ const MessageItem = memo(function MessageItem({
           ))}
         </div>
       )}
+      <MessageArtifacts message={message} />
       {messagePermissions.length > 0 && (
         <div className={`${hasMainContent ? "mt-2 ml-6" : ""} space-y-2`}>
           {messagePermissions.map((permission) => (
@@ -799,12 +906,24 @@ const MessageItem = memo(function MessageItem({
   );
 });
 
+function hasDisplayableArtifacts(message: MessageWithParts): boolean {
+  return collectArtifactPaths(message).some((f) => {
+    const e = fileExt(f);
+    return IMAGE_EXTS.has(e) || DOWNLOAD_EXTS.has(e);
+  });
+}
+
 function hasVisibleContent(message: MessageWithParts): boolean {
   const textContent = getMessageContent(message.parts);
   const hasToolCalls = message.parts.some(isToolPart);
   const messageError =
     message.info.role === "assistant" ? getAssistantError(message) : null;
-  return !!(textContent || hasToolCalls || messageError);
+  return !!(
+    textContent ||
+    hasToolCalls ||
+    messageError ||
+    hasDisplayableArtifacts(message)
+  );
 }
 
 function SessionPage() {
