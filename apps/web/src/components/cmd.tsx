@@ -10,11 +10,11 @@ import {
 } from "@/components/ui/command-menu";
 import {
   useSessions,
-  useCreateSession,
   useDeleteSession,
   useInstances,
 } from "@/hooks/use-opencode";
 import { useInstanceStore, type Instance } from "@/stores/instance-store";
+import { useNewSessionStore } from "@/stores/new-session-store";
 import {
   ChatBubbleLeftIcon,
   IconGridPlus,
@@ -60,7 +60,7 @@ export default function Cmd() {
   const params = useParams({ strict: false });
   const { data: sessionsData, mutate } = useSessions();
   const { data: instancesData } = useInstances();
-  const createSession = useCreateSession();
+  const openPicker = useNewSessionStore((s) => s.openPicker);
   const deleteSession = useDeleteSession();
   const { setTheme } = useTheme();
   const currentInstance = useInstanceStore((s) => s.instance);
@@ -78,20 +78,9 @@ export default function Cmd() {
     setIsOpen(false);
   }, [location.pathname]);
 
-  async function handleNewSession() {
-    setCreating(true);
+  function handleNewSession() {
     setIsOpen(false);
-    try {
-      const newSession = await createSession();
-      await mutate();
-      toast.success("Session created");
-      navigate({ to: "/session/$id", params: { id: newSession.id } });
-    } catch (err) {
-      console.error("Failed to create session:", err);
-      toast.error("Failed to create session");
-    } finally {
-      setCreating(false);
-    }
+    openPicker();
   }
 
   async function handleDeleteSession() {

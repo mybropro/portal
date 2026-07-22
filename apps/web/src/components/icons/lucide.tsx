@@ -35,6 +35,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  Square,
   Server,
   ServerCog,
   Settings,
@@ -97,12 +98,10 @@ export const SwatchIcon = createAppIcon(Palette);
 export const TrashIcon = createAppIcon(Trash2);
 export const XMarkIcon = createAppIcon(X);
 
-export const FileDiffIcon = createAppIcon(FileDiff, "18px");
 export const IconBadgeSparkle = createAppIcon(Sparkles);
 export const IconBox = createAppIcon(Box, "18px");
 export const IconChat = createAppIcon(MessageCircle, "18px");
 export const IconEye = createAppIcon(Eye);
-export const IconGitPullRequest = createAppIcon(GitPullRequest, "18px");
 export const IconGridPlus = createAppIcon(Grid2X2Plus, "18px");
 export const IconMagnifier = createAppIcon(Search);
 export const IconManageInstances = createAppIcon(ServerCog, "18px");
@@ -113,3 +112,4 @@ export const IconThemeLight = createAppIcon(Sun, "18px");
 export const IconThemeSystem = createAppIcon(Monitor, "18px");
 export const IconUser = createAppIcon(User);
 export const SendIcon = createAppIcon(Send);
+export const StopIcon = createAppIcon(Square);

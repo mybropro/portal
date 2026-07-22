@@ -12,9 +12,9 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu";
 import useMediaQuery from "@/hooks/use-media-query";
 import {
   useSessions,
-  useCreateSession,
   useDeleteSession,
 } from "@/hooks/use-opencode";
+import { useNewSessionStore } from "@/stores/new-session-store";
 import type { Session } from "@opencode-ai/sdk/v2";
 
 function truncateTitle(title: string, maxLength = 40): string {
@@ -28,24 +28,14 @@ export default function EmptyState() {
   const [creating, setCreating] = useState(false);
   const { isMobile } = useMediaQuery();
   const { data: sessionsData, error, isLoading, mutate } = useSessions();
-  const createSession = useCreateSession();
+  const openPicker = useNewSessionStore((s) => s.openPicker);
   const deleteSession = useDeleteSession();
 
   const sessions: Session[] = sessionsData ?? [];
 
-  const handleNewSession = useCallback(async () => {
-    if (creating) return;
-    setCreating(true);
-    try {
-      const newSession = await createSession();
-      await mutate();
-      navigate({ to: "/session/$id", params: { id: newSession.id } });
-    } catch (err) {
-      console.error("Failed to create session:", err);
-    } finally {
-      setCreating(false);
-    }
-  }, [creating, createSession, mutate, navigate]);
+  const handleNewSession = useCallback(() => {
+    openPicker();
+  }, [openPicker]);
 
   async function handleDeleteSession(sessionId: string) {
     try {

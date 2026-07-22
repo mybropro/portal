@@ -4,6 +4,7 @@ import AppSidebar from "@/components/app-sidebar";
 import { AppSidebarNav } from "@/components/app-sidebar-nav";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { BreadcrumbProvider } from "@/contexts/breadcrumb-context";
+import DirectoryPicker from "@/components/directory-picker";
 import { useInstances } from "@/hooks/use-opencode";
 import { useInstanceStore } from "@/stores/instance-store";
 import { useOpencodeEvents } from "@/hooks/use-opencode-events";
@@ -71,6 +72,7 @@ function AppLayout() {
             <Outlet />
           </div>
         </SidebarInset>
+        <DirectoryPicker />
       </SidebarProvider>
     </BreadcrumbProvider>
   );

@@ -23,6 +23,7 @@ import {
   IconUser,
   InformationCircleIcon,
   SendIcon,
+  StopIcon,
 } from "@/components/icons/lucide";
 import { useAgentStore } from "@/stores/agent-store";
 import { useInstanceStore } from "@/stores/instance-store";
@@ -49,6 +50,7 @@ import {
   useQuestions,
   useSessionStatuses,
   useSessions,
+  useAbortSession,
 } from "@/hooks/use-opencode";
 import {
   getDefaultUserSelectableAgentName,
@@ -820,6 +822,8 @@ function SessionPage() {
     error: messagesError,
   } = useSessionMessages(sessionId);
   const { data: sessionsData, mutate: mutateSessions } = useSessions();
+  const abortSession = useAbortSession();
+  const [aborting, setAborting] = useState(false);
   const { data: agentsData } = useAgents();
   const { data: sessionStatusesData, mutate: mutateSessionStatuses } =
     useSessionStatuses();
@@ -892,6 +896,19 @@ function SessionPage() {
 
     return isSubmitting || statusActive || hasOpenAssistant || hasPendingUser;
   }, [isSubmitting, sessionMessages, sessionStatus?.type]);
+
+  const handleStop = useCallback(async () => {
+    if (!sessionId || aborting) return;
+    setAborting(true);
+    try {
+      await abortSession(sessionId);
+      await mutateSessionStatuses();
+    } catch (err) {
+      console.error("Failed to stop session:", err);
+    } finally {
+      setAborting(false);
+    }
+  }, [sessionId, aborting, abortSession, mutateSessionStatuses]);
 
   const pendingPermissions = useMemo(
     () =>
@@ -1292,24 +1309,39 @@ function SessionPage() {
               className="min-h-32 max-h-32 w-full resize-none overflow-y-auto pr-14 pb-12"
               rows={5}
             />
-            <Button
-              type="submit"
-              isDisabled={!input.trim() || sending}
-              isCircle
-              size="sq-sm"
-              aria-label={sending ? "Sending message" : "Send message"}
-              className="absolute right-3 bottom-3"
-            >
-              {sending ? (
+            {sending ? (
+              <Button
+                type="button"
+                intent="danger"
+                isDisabled={aborting}
+                isCircle
+                size="sq-sm"
+                aria-label="Stop generating"
+                className="absolute right-3 bottom-3"
+                onPress={handleStop}
+              >
                 <span className="grid size-4 place-items-center">
-                  <Loader className="size-4" aria-label="Sending message" />
+                  {aborting ? (
+                    <Loader className="size-4" aria-label="Stopping" />
+                  ) : (
+                    <StopIcon className="size-3.5 fill-current" />
+                  )}
                 </span>
-              ) : (
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                isDisabled={!input.trim()}
+                isCircle
+                size="sq-sm"
+                aria-label="Send message"
+                className="absolute right-3 bottom-3"
+              >
                 <span className="grid size-4 place-items-center">
                   <SendIcon size="16px" />
                 </span>
-              )}
-            </Button>
+              </Button>
+            )}
           </div>
           <div className="mt-3 flex items-center justify-end gap-2">
             {supportsAgentSelection && <AgentSelect sessionId={sessionId} />}

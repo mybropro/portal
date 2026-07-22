@@ -3,7 +3,6 @@ import {
   ChevronUpDownIcon,
   Cog6ToothIcon,
   EllipsisHorizontalIcon,
-  FileDiffIcon,
   HomeIcon,
   LifebuoyIcon,
   PlusIcon,
@@ -12,7 +11,6 @@ import {
 } from "@/components/icons/lucide";
 import { ProviderIcon } from "@/components/icons/provider-icon";
 import { useEffect, useState, useMemo } from "react";
-import { parsePatchFiles } from "@pierre/diffs";
 import { Avatar } from "@/components/ui/avatar";
 import {
   ComboBox,
@@ -48,13 +46,12 @@ import {
 } from "@/components/ui/sidebar";
 import {
   useSessions,
-  useCreateSession,
   useDeleteSession,
   useHostname,
-  useGitDiff,
   useInstances,
 } from "@/hooks/use-opencode";
 import { useInstanceStore } from "@/stores/instance-store";
+import { useNewSessionStore } from "@/stores/new-session-store";
 import { useNavigate, useMatch } from "@tanstack/react-router";
 import type { Session } from "@opencode-ai/sdk/v2";
 import type { BackendProvider } from "@/lib/backend-url";
@@ -191,35 +188,12 @@ export default function AppSidebar(
   const { data: hostnameData } = useHostname();
   const hostname = hostnameData?.hostname ?? "Loading...";
   const { data: sessionsData, mutate: mutateSessions } = useSessions();
-  const createSession = useCreateSession();
+  const openPicker = useNewSessionStore((s) => s.openPicker);
   const deleteSession = useDeleteSession();
   const sessions: Session[] = sessionsData ?? [];
 
-  const { data: diffData } = useGitDiff();
-  const diffFileCount = useMemo(() => {
-    if (!diffData?.diff) return 0;
-    try {
-      const patches = parsePatchFiles(diffData.diff);
-      return patches.reduce((count, patch) => count + patch.files.length, 0);
-    } catch {
-      return 0;
-    }
-  }, [diffData?.diff]);
-
-  async function handleNewSession() {
-    if (creating) return;
-    setCreating(true);
-    try {
-      const session = await createSession();
-      await mutateSessions();
-      toast.success("Session created");
-      navigate({ to: "/session/$id", params: { id: session.id } });
-    } catch (error) {
-      console.error("Failed to create session:", error);
-      toast.error("Failed to create session");
-    } finally {
-      setCreating(false);
-    }
+  function handleNewSession() {
+    openPicker();
   }
 
   const currentSessionMatch = useMatch({
@@ -269,15 +243,6 @@ export default function AppSidebar(
               <SidebarLabel>
                 {creating ? "Creating..." : "New Session"}
               </SidebarLabel>
-            </SidebarItem>
-            <SidebarItem
-              tooltip="View Git Diff"
-              href="/diff"
-              className="cursor-pointer gap-x-2"
-              badge={diffFileCount > 0 ? diffFileCount : undefined}
-            >
-              <FileDiffIcon className="size-4 shrink-0" data-slot="icon" />
-              <SidebarLabel>Diff</SidebarLabel>
             </SidebarItem>
           </SidebarSection>
 

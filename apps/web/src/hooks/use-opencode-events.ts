@@ -38,10 +38,6 @@ function questionsKey(port: number, provider?: BackendProvider) {
   return `${backendBasePath(provider, port)}/questions`;
 }
 
-function gitDiffKey(port: number, provider?: BackendProvider) {
-  return `${backendBasePath(provider, port)}/git/diff`;
-}
-
 function currentProjectKey(port: number, provider?: BackendProvider) {
   return `${backendBasePath(provider, port)}/project/current`;
 }
@@ -884,11 +880,6 @@ function applyEvent(
       mutateQuestions(port, provider, (items) =>
         removeById(items, event.properties.requestID),
       );
-      break;
-
-    case "session.diff":
-    case "vcs.branch.updated":
-      void mutate(gitDiffKey(port, provider));
       break;
 
     case "project.updated":
