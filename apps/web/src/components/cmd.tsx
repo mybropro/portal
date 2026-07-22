@@ -11,45 +11,24 @@ import {
 import {
   useSessions,
   useDeleteSession,
-  useInstances,
 } from "@/hooks/use-opencode";
-import { useInstanceStore, type Instance } from "@/stores/instance-store";
 import { useNewSessionStore } from "@/stores/new-session-store";
 import {
   ChatBubbleLeftIcon,
   IconGridPlus,
-  IconManageInstances,
   IconThemeDark,
   IconThemeLight,
   IconThemeSystem,
   TrashIcon,
 } from "@/components/icons/lucide";
-import { ProviderIcon } from "@/components/icons/provider-icon";
 import { useTheme } from "@/providers/theme-provider";
 import { toast } from "@/components/ui/toast";
 import type { Session } from "@opencode-ai/sdk/v2";
-import type { BackendProvider } from "@/lib/backend-url";
 
 function truncateTitle(title: string, maxLength = 40): string {
   if (title.length <= maxLength) return title;
   const halfLength = Math.floor((maxLength - 3) / 2);
   return `${title.slice(0, halfLength)}...${title.slice(-halfLength)}`;
-}
-
-interface InstanceData {
-  id: string;
-  name: string;
-  provider?: BackendProvider;
-  directory: string;
-  port: number;
-  hostname: string;
-  opencodePid?: number | null;
-  webPid?: number | null;
-  startedAt: string | null;
-  source?: "config" | "discovered";
-  version?: string | null;
-  state: "running";
-  status: string;
 }
 
 export default function Cmd() {
@@ -59,15 +38,11 @@ export default function Cmd() {
   const location = useLocation();
   const params = useParams({ strict: false });
   const { data: sessionsData, mutate } = useSessions();
-  const { data: instancesData } = useInstances();
   const openPicker = useNewSessionStore((s) => s.openPicker);
   const deleteSession = useDeleteSession();
   const { setTheme } = useTheme();
-  const currentInstance = useInstanceStore((s) => s.instance);
-  const setInstance = useInstanceStore((s) => s.setInstance);
 
   const sessions: Session[] = sessionsData ?? [];
-  const instances: InstanceData[] = instancesData?.instances ?? [];
   const currentSessionId = params.id as string | undefined;
   const isOnSessionPage =
     location.pathname.startsWith("/session/") && currentSessionId;
@@ -108,20 +83,7 @@ export default function Cmd() {
     setIsOpen(false);
   }
 
-  function handleInstanceSelect(instance: InstanceData) {
-    const newInstance: Instance = {
-      id: instance.id,
-      name: instance.name,
-      port: instance.port,
-      provider: instance.provider ?? "opencode",
-    };
-    setInstance(newInstance);
-    toast.success(`Switched to ${instance.name}`);
-    setIsOpen(false);
-    navigate({ to: "/" });
-  }
-
-  return (
+    return (
     <CommandMenu
       isOpen={isOpen}
       onOpenChange={setIsOpen}
@@ -154,39 +116,7 @@ export default function Cmd() {
               {creating ? "Creating..." : "New Session"}
             </CommandMenuLabel>
           </CommandMenuItem>
-          <CommandMenuItem
-            textValue="Manage instances"
-            onAction={() => {
-              setIsOpen(false);
-              navigate({ to: "/instances" });
-            }}
-          >
-            <IconManageInstances className="size-4 mr-2" />
-            <CommandMenuLabel>Manage Instances</CommandMenuLabel>
-          </CommandMenuItem>
         </CommandMenuSection>
-
-        {instances.length > 0 && (
-          <CommandMenuSection label="Switch Instance">
-            {instances.map((instance) => (
-              <CommandMenuItem
-                key={instance.id}
-                textValue={instance.name}
-                onAction={() => handleInstanceSelect(instance)}
-              >
-                <ProviderIcon
-                  provider={instance.provider}
-                  className="size-4 mr-2"
-                  aria-hidden="true"
-                />
-                <CommandMenuLabel>{instance.name}</CommandMenuLabel>
-                {currentInstance?.id === instance.id && (
-                  <div className="absolute right-2 size-2 rounded-full bg-primary" />
-                )}
-              </CommandMenuItem>
-            ))}
-          </CommandMenuSection>
-        )}
 
         <CommandMenuSection label="Theme">
           <CommandMenuItem

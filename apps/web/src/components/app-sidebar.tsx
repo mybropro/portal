@@ -9,17 +9,8 @@ import {
   ShieldCheckIcon,
   TrashIcon,
 } from "@/components/icons/lucide";
-import { ProviderIcon } from "@/components/icons/provider-icon";
 import { useEffect, useState, useMemo } from "react";
 import { Avatar } from "@/components/ui/avatar";
-import {
-  ComboBox,
-  ComboBoxContent,
-  ComboBoxDescription,
-  ComboBoxInput,
-  ComboBoxItem,
-  ComboBoxLabel,
-} from "@/components/ui/combo-box";
 import { Link as UILink } from "@/components/ui/link";
 import { toast } from "@/components/ui/toast";
 import {
@@ -48,21 +39,11 @@ import {
   useSessions,
   useDeleteSession,
   useHostname,
-  useInstances,
 } from "@/hooks/use-opencode";
 import { useInstanceStore } from "@/stores/instance-store";
 import { useNewSessionStore } from "@/stores/new-session-store";
 import { useNavigate, useMatch } from "@tanstack/react-router";
 import type { Session } from "@opencode-ai/sdk/v2";
-import type { BackendProvider } from "@/lib/backend-url";
-
-interface InstanceData {
-  id: string;
-  name: string;
-  provider?: BackendProvider;
-  directory: string;
-  port: number;
-}
 
 function formatDirectoryPath(directory: string): string {
   const normalized = directory.replace(/\\+/g, "/").replace(/\/+$/g, "");
@@ -76,101 +57,6 @@ function formatDirectoryPath(directory: string): string {
   if (normalized.startsWith("/")) return normalized.slice(1) || "/";
 
   return normalized || directory;
-}
-
-function InstanceSwitcher() {
-  const navigate = useNavigate();
-  const instance = useInstanceStore((s) => s.instance);
-  const setInstance = useInstanceStore((s) => s.setInstance);
-  const { data } = useInstances();
-  const instances: InstanceData[] = data?.instances ?? [];
-  const [inputValue, setInputValue] = useState(instance?.name ?? "");
-
-  useEffect(() => {
-    setInputValue(instance?.name ?? "");
-  }, [instance?.id, instance?.name]);
-
-  const filteredInstances = useMemo(() => {
-    const query = inputValue.trim().toLowerCase();
-
-    if (!query || query === instance?.name.toLowerCase()) {
-      return instances;
-    }
-
-    return instances.filter((item) =>
-      `${item.name} ${item.directory} ${item.port}`
-        .toLowerCase()
-        .includes(query),
-    );
-  }, [inputValue, instance?.name, instances]);
-
-  const handleSelectionChange = (key: React.Key | null) => {
-    if (key == null) return;
-
-    const selected = instances.find((item) => item.id === String(key));
-    if (!selected) return;
-
-    setInstance({
-      id: selected.id,
-      name: selected.name,
-      port: selected.port,
-      provider: selected.provider ?? "opencode",
-    });
-    setInputValue(selected.name);
-    navigate({ to: "/" });
-  };
-
-  return (
-    <div className="col-span-full min-w-0 py-1 in-data-[state=collapsed]:hidden">
-      <ComboBox
-        aria-label="Switch instance"
-        selectedKey={instance?.id ?? null}
-        inputValue={inputValue}
-        onInputChange={setInputValue}
-        onSelectionChange={handleSelectionChange}
-        isDisabled={!data || instances.length === 0}
-      >
-        <ComboBoxInput
-          prefix={
-            <ProviderIcon
-              provider={instance?.provider}
-              data-slot="icon"
-              className="size-4 text-muted-fg"
-              aria-hidden="true"
-            />
-          }
-          placeholder={data ? "Select instance" : "Loading instances..."}
-          className="h-8 rounded-md px-2.5 py-0"
-        />
-        <ComboBoxContent
-          items={filteredInstances}
-          popover={{
-            placement: "bottom start",
-            className: "w-(--trigger-width)",
-          }}
-        >
-          {(item) => (
-            <ComboBoxItem id={item.id} textValue={item.name}>
-              <ProviderIcon
-                provider={item.provider}
-                data-slot="icon"
-                className="size-4"
-              />
-              <ComboBoxLabel className="min-w-0 truncate">
-                {item.name}
-              </ComboBoxLabel>
-              <ComboBoxDescription className="flex min-w-0 items-center gap-2 text-xs">
-                <span className="truncate">
-                  {formatDirectoryPath(item.directory)}
-                </span>
-                <span className="shrink-0 tabular-nums">:{item.port}</span>
-              </ComboBoxDescription>
-            </ComboBoxItem>
-          )}
-        </ComboBoxContent>
-      </ComboBox>
-    </div>
-  );
 }
 
 function truncateTitle(title: string, maxLength = 40): string {
@@ -229,9 +115,6 @@ export default function AppSidebar(
       </SidebarHeader>
       <SidebarContent>
         <SidebarSectionGroup>
-          <SidebarSection>
-            <InstanceSwitcher />
-          </SidebarSection>
 
           <SidebarSection>
             <SidebarItem

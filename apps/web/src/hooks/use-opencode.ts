@@ -22,13 +22,6 @@ function useBackend() {
     : null;
 }
 
-export function useInstances() {
-  return useSWR("/api/instances", fetcher, {
-    refreshInterval: 5_000,
-    revalidateOnFocus: true,
-  });
-}
-
 export function useSessions() {
   const backend = useBackend();
   const recents = useNewSessionStore((s) => s.recents);
