@@ -27,6 +27,7 @@ interface NewSessionState {
   openPicker: () => void;
   closePicker: () => void;
   rememberDir: (dir: string) => void;
+  clearRecents: () => void;
 }
 
 export const useNewSessionStore = create<NewSessionState>()((set, get) => ({
@@ -49,5 +50,16 @@ export const useNewSessionStore = create<NewSessionState>()((set, get) => ({
       }
     }
     set({ lastDir: dir, recents });
+  },
+  clearRecents: () => {
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem(RECENTS_KEY);
+        window.localStorage.removeItem(LAST_DIR_KEY);
+      } catch {
+        // ignore
+      }
+    }
+    set({ recents: [], lastDir: null });
   },
 }));

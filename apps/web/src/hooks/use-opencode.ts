@@ -53,6 +53,14 @@ export function useSessionStatuses() {
   );
 }
 
+export function useConfig() {
+  const backend = useBackend();
+
+  return useSWR(`${backend.basePath}/config`, fetcher, {
+    revalidateOnFocus: false,
+  });
+}
+
 export function useProviders() {
   const backend = useBackend();
 

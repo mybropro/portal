@@ -81,7 +81,6 @@ export const EllipsisHorizontalIcon = createAppIcon(Ellipsis);
 export const FolderIcon = createAppIcon(Folder);
 export const HomeIcon = createAppIcon(Home);
 export const InformationCircleIcon = createAppIcon(Info);
-export const KeyIcon = createAppIcon(KeyRound);
 export const LifebuoyIcon = createAppIcon(LifeBuoy);
 export const MinusIcon = createAppIcon(Minus);
 export const PanelLeftIcon = createAppIcon(PanelLeft);
