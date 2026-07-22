@@ -847,40 +847,6 @@ export function settleOptimisticMessage(
   );
 }
 
-export function updateOptimisticMessage(
-  port: number,
-  sessionId: string,
-  messageId: string,
-  updates: Partial<MessageWithParts>,
-  provider?: BackendProvider,
-) {
-  const key = getMessagesKey(port, sessionId, provider);
-
-  mutate(
-    key,
-    (current: SessionMessage[] | undefined) => {
-      if (!current) return current;
-      return current.map((message) => {
-        if (message.id !== messageId || message.type !== "user") return message;
-
-        return {
-          ...message,
-          ...(updates.parts
-            ? { text: legacyTextFromParts(updates.parts) }
-            : {}),
-          metadata: {
-            ...(message.metadata ?? {}),
-            ...("isQueued" in updates
-              ? { portalQueued: updates.isQueued === true }
-              : {}),
-          },
-        };
-      });
-    },
-    { revalidate: false },
-  );
-}
-
 export function removeOptimisticMessage(
   port: number,
   sessionId: string,

@@ -28,15 +28,6 @@ export function useSessions() {
   );
 }
 
-export function useSession(id: string | null) {
-  const backend = useBackend();
-
-  return useSWR(
-    backend && id ? `${backend.basePath}/session/${id}` : null,
-    fetcher,
-  );
-}
-
 export function useSessionMessages(id: string | null) {
   const backend = useBackend();
 
@@ -62,12 +53,6 @@ export function useSessionStatuses() {
   );
 }
 
-export function useConfig() {
-  const backend = useBackend();
-
-  return useSWR(backend ? `${backend.basePath}/config` : null, fetcher);
-}
-
 export function useProviders() {
   const backend = useBackend();
 
@@ -78,21 +63,6 @@ export function useAgents() {
   const backend = useBackend();
 
   return useSWR(backend ? `${backend.basePath}/agents` : null, fetcher);
-}
-
-export function useHealth() {
-  const backend = useBackend();
-
-  return useSWR(backend ? `${backend.basePath}/health` : null, fetcher);
-}
-
-export function useCurrentProject() {
-  const backend = useBackend();
-
-  return useSWR(
-    backend ? `${backend.basePath}/project/current` : null,
-    fetcher,
-  );
 }
 
 export function useHostname() {
@@ -169,78 +139,10 @@ export function usePermissions() {
   return useSWR(backend ? `${backend.basePath}/permissions` : null, fetcher);
 }
 
-export function useReplyPermission() {
-  const backend = useBackend();
-
-  return async (
-    requestId: string,
-    reply: "once" | "always" | "reject",
-    message?: string,
-  ) => {
-    if (!backend) throw new Error("No instance selected");
-
-    const res = await fetch(
-      `${backend.basePath}/permission/${requestId}/reply`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reply, message }),
-      },
-    );
-
-    if (!res.ok) {
-      throw new Error(`Failed to reply to permission: ${res.status}`);
-    }
-
-    return res.json();
-  };
-}
-
 export function useQuestions() {
   const backend = useBackend();
 
   return useSWR(backend ? `${backend.basePath}/questions` : null, fetcher);
-}
-
-export function useReplyQuestion() {
-  const backend = useBackend();
-
-  return async (requestId: string, answers: string[][]) => {
-    if (!backend) throw new Error("No instance selected");
-
-    const res = await fetch(`${backend.basePath}/question/${requestId}/reply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ answers }),
-    });
-
-    if (!res.ok) {
-      throw new Error(`Failed to reply to question: ${res.status}`);
-    }
-
-    return res.json();
-  };
-}
-
-export function useRejectQuestion() {
-  const backend = useBackend();
-
-  return async (requestId: string) => {
-    if (!backend) throw new Error("No instance selected");
-
-    const res = await fetch(
-      `${backend.basePath}/question/${requestId}/reject`,
-      {
-        method: "POST",
-      },
-    );
-
-    if (!res.ok) {
-      throw new Error(`Failed to reject question: ${res.status}`);
-    }
-
-    return res.json();
-  };
 }
 
 export function useAbortSession() {

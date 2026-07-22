@@ -1,12 +1,8 @@
 import {
-  ArrowRightStartOnRectangleIcon,
   ChevronUpDownIcon,
   Cog6ToothIcon,
   EllipsisHorizontalIcon,
-  HomeIcon,
-  LifebuoyIcon,
   PlusIcon,
-  ShieldCheckIcon,
   TrashIcon,
 } from "@/components/icons/lucide";
 import { useEffect, useState, useMemo } from "react";
@@ -19,7 +15,6 @@ import {
   MenuHeader,
   MenuItem,
   MenuSection,
-  MenuSeparator,
   MenuTrigger,
 } from "@/components/ui/menu";
 import {
@@ -194,27 +189,9 @@ export default function AppSidebar(
               </MenuHeader>
             </MenuSection>
 
-            <MenuItem href="#dashboard">
-              <HomeIcon />
-              Dashboard
-            </MenuItem>
             <MenuItem href="/settings">
               <Cog6ToothIcon />
               Settings
-            </MenuItem>
-            <MenuItem href="#security">
-              <ShieldCheckIcon />
-              Security
-            </MenuItem>
-            <MenuSeparator />
-            <MenuItem href="https://openportal.space/contact">
-              <LifebuoyIcon />
-              Customer Support
-            </MenuItem>
-            <MenuSeparator />
-            <MenuItem href="#logout">
-              <ArrowRightStartOnRectangleIcon />
-              Log out
             </MenuItem>
           </MenuContent>
         </Menu>

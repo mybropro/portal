@@ -33,11 +33,3 @@ export function useBreadcrumb() {
   return context;
 }
 
-export function useSetPageTitle(title: string | null) {
-  const { setPageTitle } = useBreadcrumb();
-
-  useState(() => {
-    setPageTitle(title);
-    return null;
-  });
-}
