@@ -1,9 +1,16 @@
+import { useMatch } from "@tanstack/react-router";
 import { Breadcrumbs, BreadcrumbsItem } from "@/components/ui/breadcrumbs";
 import { SidebarNav, SidebarTrigger } from "@/components/ui/sidebar";
 import { useBreadcrumb } from "@/contexts/breadcrumb-context";
+import { SessionMenu } from "@/components/session-menu";
 
 export function AppSidebarNav() {
   const { pageTitle } = useBreadcrumb();
+  const sessionMatch = useMatch({
+    from: "/_app/session/$id",
+    shouldThrow: false,
+  });
+  const sessionId = sessionMatch?.params?.id;
 
   return (
     <SidebarNav isSticky>
@@ -14,6 +21,11 @@ export function AppSidebarNav() {
           {pageTitle && <BreadcrumbsItem>{pageTitle}</BreadcrumbsItem>}
         </Breadcrumbs>
       </span>
+      {sessionId && (
+        <span className="ml-auto">
+          <SessionMenu sessionId={sessionId} />
+        </span>
+      )}
     </SidebarNav>
   );
 }

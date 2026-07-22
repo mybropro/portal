@@ -8,8 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader } from "@/components/ui/loader";
-import { AgentSelect } from "@/components/agent-select";
-import { ModelSelect } from "@/components/model-select";
 import {
   FileMentionPopover,
   useFileMention,
@@ -1464,10 +1462,6 @@ function SessionPage() {
                 </span>
               </Button>
             )}
-          </div>
-          <div className="mt-3 flex items-center justify-end gap-2">
-            {supportsAgentSelection && <AgentSelect sessionId={sessionId} />}
-            <ModelSelect />
           </div>
         </form>
       </div>

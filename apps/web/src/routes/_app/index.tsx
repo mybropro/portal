@@ -1,7 +1,11 @@
 import { useEffect } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useBreadcrumb } from "@/contexts/breadcrumb-context";
-import { useSessions, useDeleteSession } from "@/hooks/use-opencode";
+import {
+  useSessions,
+  useDeleteSession,
+  useSessionStatuses,
+} from "@/hooks/use-opencode";
 import { useNewSessionStore } from "@/stores/new-session-store";
 import { Button } from "@/components/ui/button";
 import { Loader } from "@/components/ui/loader";
@@ -13,12 +17,13 @@ import {
 } from "@/components/ui/menu";
 import { toast } from "@/components/ui/toast";
 import {
-  IconGridPlus,
+  PlusIcon,
   EllipsisHorizontalIcon,
   TrashIcon,
   FolderIcon,
+  ChatBubbleLeftIcon,
 } from "@/components/icons/lucide";
-import type { Session } from "@opencode-ai/sdk/v2";
+import type { Session, SessionStatus } from "@opencode-ai/sdk/v2";
 
 export const Route = createFileRoute("/_app/")({
   component: SessionsPage,
@@ -28,34 +33,124 @@ function baseName(p: string) {
   return p.replace(/\/+$/, "").split("/").pop() || p;
 }
 
-function relativeTime(ms?: number) {
-  if (!ms) return "";
-  const s = Math.floor((Date.now() - ms) / 1000);
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
-  return new Date(ms).toLocaleDateString();
+const DAY = 86_400_000;
+const GROUP_ORDER = ["Today", "Yesterday", "Last week", "This month", "Older"];
+
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function groupOf(ms: number) {
+  const t = startOfToday();
+  if (ms >= t) return "Today";
+  if (ms >= t - DAY) return "Yesterday";
+  if (ms >= t - 7 * DAY) return "Last week";
+  if (ms >= t - 30 * DAY) return "This month";
+  return "Older";
+}
+
+function timeLabel(ms: number) {
+  const diff = Date.now() - ms;
+  if (diff < 60_000) return "now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
+  if (ms >= startOfToday()) return `${Math.floor(diff / 3_600_000)}h`;
+  return new Date(ms).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function isWorking(status?: SessionStatus) {
+  return status?.type === "busy" || status?.type === "retry";
+}
+
+function SessionCard({
+  session,
+  working,
+  onDelete,
+  onOpen,
+}: {
+  session: Session;
+  working: boolean;
+  onDelete: () => void;
+  onOpen: () => void;
+}) {
+  return (
+    <div className="group flex items-stretch gap-0.5 rounded-xl bg-muted/30 transition-colors hover:bg-muted/50">
+      <Link
+        to="/session/$id"
+        params={{ id: session.id }}
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-xl py-3 pl-3.5 pr-1"
+      >
+        <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-muted-fg">
+          <ChatBubbleLeftIcon className="size-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium">
+            {session.title || "Untitled session"}
+          </p>
+          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-fg">
+            {working ? (
+              <>
+                <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" />
+                <span>Working…</span>
+              </>
+            ) : (
+              <>
+                <FolderIcon className="size-3 shrink-0" />
+                <span className="truncate">{baseName(session.directory)}</span>
+              </>
+            )}
+          </div>
+        </div>
+        <span className="shrink-0 self-start pt-0.5 text-xs text-muted-fg">
+          {timeLabel(session.time?.updated ?? session.time?.created ?? 0)}
+        </span>
+      </Link>
+      <Menu>
+        <MenuTrigger
+          aria-label="Session options"
+          className="rounded-md px-1.5 text-muted-fg opacity-60 transition-colors hover:bg-muted hover:text-fg hover:opacity-100"
+        >
+          <EllipsisHorizontalIcon className="size-4" />
+        </MenuTrigger>
+        <MenuContent placement="bottom end">
+          <MenuItem onAction={onOpen}>Open</MenuItem>
+          <MenuItem intent="danger" onAction={onDelete}>
+            <TrashIcon className="size-4" />
+            Delete
+          </MenuItem>
+        </MenuContent>
+      </Menu>
+    </div>
+  );
 }
 
 function SessionsPage() {
   const { setPageTitle } = useBreadcrumb();
   const { data, error, isLoading, mutate } = useSessions();
+  const { data: statuses } = useSessionStatuses();
   const deleteSession = useDeleteSession();
   const openPicker = useNewSessionStore((s) => s.openPicker);
   const navigate = useNavigate();
-
-  const sessions: Session[] = [...((data as Session[]) ?? [])].sort(
-    (a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0),
-  );
 
   useEffect(() => {
     setPageTitle(null);
     return () => setPageTitle(null);
   }, [setPageTitle]);
+
+  const sessions: Session[] = [...((data as Session[]) ?? [])].sort(
+    (a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0),
+  );
+
+  // Group by recency, preserving order.
+  const groups = new Map<string, Session[]>();
+  for (const s of sessions) {
+    const g = groupOf(s.time?.updated ?? s.time?.created ?? 0);
+    (groups.get(g) ?? groups.set(g, []).get(g)!).push(s);
+  }
 
   async function handleDelete(session: Session) {
     try {
@@ -69,24 +164,9 @@ function SessionsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8 pb-20">
-      <header className="mb-6 flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Sessions</h1>
-          {sessions.length > 0 && (
-            <p className="text-sm text-muted-fg">
-              {sessions.length} session{sessions.length === 1 ? "" : "s"}
-            </p>
-          )}
-        </div>
-        <Button onPress={openPicker}>
-          <IconGridPlus className="size-4" />
-          New Session
-        </Button>
-      </header>
-
+    <div className="mx-auto max-w-2xl px-4 pb-28 pt-4">
       {isLoading && (
-        <div className="flex items-center justify-center py-16">
+        <div className="flex items-center justify-center py-20">
           <Loader />
         </div>
       )}
@@ -98,71 +178,48 @@ function SessionsPage() {
       )}
 
       {!isLoading && !error && sessions.length === 0 && (
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16 text-center">
+        <div className="mt-10 flex flex-col items-center gap-4 rounded-xl border border-dashed py-16 text-center">
           <p className="text-muted-fg">No sessions yet.</p>
           <Button intent="outline" onPress={openPicker}>
-            <IconGridPlus className="size-4" />
+            <PlusIcon className="size-4" />
             Start your first session
           </Button>
         </div>
       )}
 
-      {!isLoading && !error && sessions.length > 0 && (
-        <ul className="divide-y rounded-xl border">
-          {sessions.map((session) => (
-            <li
-              key={session.id}
-              className="flex items-center gap-2 pr-2 transition-colors hover:bg-muted/40"
-            >
-              <Link
-                to="/session/$id"
-                params={{ id: session.id }}
-                className="flex min-w-0 flex-1 flex-col gap-0.5 px-4 py-3"
-              >
-                <span className="truncate font-medium">
-                  {session.title || "Untitled session"}
-                </span>
-                <span className="flex items-center gap-1.5 truncate text-xs text-muted-fg">
-                  <FolderIcon className="size-3 shrink-0" />
-                  <span className="truncate">{baseName(session.directory)}</span>
-                  {session.time?.updated ? (
-                    <span className="shrink-0">
-                      · {relativeTime(session.time.updated)}
-                    </span>
-                  ) : null}
-                </span>
-              </Link>
-              <Menu>
-                <MenuTrigger
-                  aria-label="Session options"
-                  className="rounded-md p-2 text-muted-fg hover:bg-muted hover:text-fg"
-                >
-                  <EllipsisHorizontalIcon className="size-4" />
-                </MenuTrigger>
-                <MenuContent placement="bottom end">
-                  <MenuItem
-                    onAction={() =>
-                      navigate({
-                        to: "/session/$id",
-                        params: { id: session.id },
-                      })
-                    }
-                  >
-                    Open
-                  </MenuItem>
-                  <MenuItem
-                    intent="danger"
-                    onAction={() => handleDelete(session)}
-                  >
-                    <TrashIcon className="size-4" />
-                    Delete
-                  </MenuItem>
-                </MenuContent>
-              </Menu>
-            </li>
-          ))}
-        </ul>
-      )}
+      {!isLoading &&
+        !error &&
+        GROUP_ORDER.filter((g) => groups.has(g)).map((g) => (
+          <section key={g} className="mb-6">
+            <h2 className="mb-2 px-1 text-sm font-medium text-muted-fg">{g}</h2>
+            <div className="space-y-2">
+              {groups.get(g)!.map((session) => (
+                <SessionCard
+                  key={session.id}
+                  session={session}
+                  working={isWorking(statuses?.[session.id])}
+                  onDelete={() => handleDelete(session)}
+                  onOpen={() =>
+                    navigate({
+                      to: "/session/$id",
+                      params: { id: session.id },
+                    })
+                  }
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+
+      {/* Floating new-session button */}
+      <Button
+        isCircle
+        onPress={openPicker}
+        aria-label="New session"
+        className="fixed bottom-6 right-6 z-20 size-14 shadow-lg shadow-black/20"
+      >
+        <PlusIcon className="size-6" />
+      </Button>
     </div>
   );
 }
