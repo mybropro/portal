@@ -1,7 +1,6 @@
 import useSWR from "swr";
-import { useInstanceStore } from "@/stores/instance-store";
 import { useNewSessionStore } from "@/stores/new-session-store";
-import { backendBasePath } from "@/lib/backend-url";
+import { OPENCODE_BASE_PATH, OPENCODE_PORT } from "@/lib/backend-url";
 import type { SessionStatus } from "@opencode-ai/sdk/v2";
 
 const fetcher = async (url: string) => {
@@ -13,13 +12,7 @@ const fetcher = async (url: string) => {
 };
 
 function useBackend() {
-  const instance = useInstanceStore((s) => s.instance);
-  return instance
-    ? {
-        port: instance.port,
-        basePath: backendBasePath(instance.provider, instance.port),
-      }
-    : null;
+  return { port: OPENCODE_PORT, basePath: OPENCODE_BASE_PATH };
 }
 
 export function useSessions() {

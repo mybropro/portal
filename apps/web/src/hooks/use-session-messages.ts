@@ -20,9 +20,14 @@ import type {
   ToolFileContent,
   ToolTextContent,
 } from "@opencode-ai/sdk/v2";
-import { useInstanceStore } from "@/stores/instance-store";
 import { getErrorMessage } from "@/lib/error-message";
-import { backendBasePath, type BackendProvider } from "@/lib/backend-url";
+import {
+  backendBasePath,
+  OPENCODE_BASE_PATH,
+  OPENCODE_PORT,
+  OPENCODE_PROVIDER,
+  type BackendProvider,
+} from "@/lib/backend-url";
 
 export type {
   Message,
@@ -70,14 +75,11 @@ const fetcher = async (url: string): Promise<SessionMessage[]> => {
 };
 
 function useBackend() {
-  const instance = useInstanceStore((s) => s.instance);
-  return instance
-    ? {
-        port: instance.port,
-        provider: instance.provider,
-        basePath: backendBasePath(instance.provider, instance.port),
-      }
-    : null;
+  return {
+    port: OPENCODE_PORT,
+    provider: OPENCODE_PROVIDER,
+    basePath: OPENCODE_BASE_PATH,
+  };
 }
 
 export function useSessionMessages(sessionId: string | undefined) {

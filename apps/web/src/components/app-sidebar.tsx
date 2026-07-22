@@ -40,7 +40,6 @@ import {
   useDeleteSession,
   useHostname,
 } from "@/hooks/use-opencode";
-import { useInstanceStore } from "@/stores/instance-store";
 import { useNewSessionStore } from "@/stores/new-session-store";
 import { useNavigate, useMatch } from "@tanstack/react-router";
 import type { Session } from "@opencode-ai/sdk/v2";
@@ -70,7 +69,6 @@ export default function AppSidebar(
 ) {
   const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
-  const instance = useInstanceStore((s) => s.instance);
   const { data: hostnameData } = useHostname();
   const hostname = hostnameData?.hostname ?? "Loading...";
   const { data: sessionsData, mutate: mutateSessions } = useSessions();
@@ -193,11 +191,6 @@ export default function AppSidebar(
             <MenuSection>
               <MenuHeader separator>
                 <span className="block">{hostname}</span>
-                {instance && (
-                  <span className="block text-muted-fg text-xs">
-                    {instance.name}
-                  </span>
-                )}
               </MenuHeader>
             </MenuSection>
 

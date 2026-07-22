@@ -26,7 +26,6 @@ import {
   StopIcon,
 } from "@/components/icons/lucide";
 import { useAgentStore } from "@/stores/agent-store";
-import { useInstanceStore } from "@/stores/instance-store";
 import { useModelStore } from "@/stores/model-store";
 import { useBreadcrumb } from "@/contexts/breadcrumb-context";
 import {
@@ -57,7 +56,12 @@ import {
   isValidUserSelectableAgent,
 } from "@/lib/agent-selection";
 import { getErrorMessage, getResponseErrorMessage } from "@/lib/error-message";
-import { backendBasePath, type BackendProvider } from "@/lib/backend-url";
+import {
+  backendBasePath,
+  OPENCODE_PORT,
+  OPENCODE_PROVIDER,
+  type BackendProvider,
+} from "@/lib/backend-url";
 import type { Agent, Session, SessionMessage } from "@opencode-ai/sdk/v2";
 
 export const Route = createFileRoute("/_app/session/$id")({
@@ -928,9 +932,8 @@ function hasVisibleContent(message: MessageWithParts): boolean {
 
 function SessionPage() {
   const { id: sessionId } = Route.useParams();
-  const instance = useInstanceStore((s) => s.instance);
-  const port = instance?.port ?? 0;
-  const provider = instance?.provider;
+  const port = OPENCODE_PORT;
+  const provider = OPENCODE_PROVIDER;
   const supportsAgentSelection = provider === "opencode";
   const apiBase = port ? backendBasePath(provider, port) : "";
 

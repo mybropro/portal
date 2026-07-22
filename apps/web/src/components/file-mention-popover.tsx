@@ -1,8 +1,7 @@
 import { DocumentIcon } from "@/components/icons/lucide";
 import { useEffect, useRef, useState } from "react";
 import useMediaQuery from "@/hooks/use-media-query";
-import { useInstanceStore } from "@/stores/instance-store";
-import { backendBasePath } from "@/lib/backend-url";
+import { OPENCODE_BASE_PATH, OPENCODE_PORT } from "@/lib/backend-url";
 
 interface FileResult {
   path: string;
@@ -124,9 +123,8 @@ export function FileMentionPopover({
   const listRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const { isMobile } = useMediaQuery();
-  const instance = useInstanceStore((s) => s.instance);
-  const port = instance?.port;
-  const apiBase = port ? backendBasePath(instance?.provider, port) : "";
+  const port = OPENCODE_PORT;
+  const apiBase = OPENCODE_BASE_PATH;
 
   useEffect(() => {
     if (isOpen && mentionStart !== null && textareaRef.current) {
