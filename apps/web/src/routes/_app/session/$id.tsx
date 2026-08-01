@@ -13,6 +13,8 @@ import {
   useFileMention,
 } from "@/components/file-mention-popover";
 import {
+  ChevronDownIcon,
+  ChevronRightIcon,
   IconBadgeSparkle,
   IconEye,
   IconMagnifier,
@@ -284,6 +286,13 @@ function parseToolQuestions(part: ToolPart): QuestionInfo[] {
       custom: item.custom !== false,
     }))
     .filter((q) => !!q.question);
+}
+
+function hasToolQuestions(part: ToolPart): boolean {
+  return (
+    (part.tool || "").toLowerCase() === "question" &&
+    parseToolQuestions(part).length > 0
+  );
 }
 
 function formatToolCall(part: ToolPart): {
@@ -815,11 +824,100 @@ const ToolCallItem = memo(function ToolCallItem({
   );
 });
 
+/**
+ * A run of tool calls folded into one line. opencode splits a turn into one
+ * assistant message per step, so a five-tool turn arrives as five messages —
+ * the run is assembled across them by `buildMessageRows`.
+ *
+ * Collapsed by default; the header stays useful while work is in flight by
+ * naming the tool currently running. Anything that needs attention (a failure,
+ * a question) opens the group on its own until you say otherwise.
+ */
+const ToolCallGroup = memo(function ToolCallGroup({
+  parts,
+  port,
+  provider,
+  sessionId,
+  pendingQuestions,
+  onQuestionResolved,
+}: {
+  parts: ToolPart[];
+  port: number;
+  provider?: BackendProvider;
+  sessionId: string;
+  pendingQuestions: QuestionRequest[];
+  onQuestionResolved: (requestId: string) => void;
+}) {
+  const [toggled, setToggled] = useState<boolean | null>(null);
+
+  const active = parts.find(
+    (part) =>
+      part.state.status === "pending" || part.state.status === "running",
+  );
+  const failed = parts.filter((part) => part.state.status === "error");
+  const needsAttention = failed.length > 0 || parts.some(hasToolQuestions);
+  const open = toggled ?? needsAttention;
+
+  const summary = active
+    ? formatToolCall(active).label
+    : `${parts.length} tool call${parts.length === 1 ? "" : "s"}`;
+  const toolNames = Array.from(
+    new Set(parts.map((part) => part.tool).filter(Boolean)),
+  );
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setToggled(!open)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 py-0.5 font-mono text-xs text-muted-fg hover:text-fg min-w-0"
+      >
+        <span className="shrink-0 opacity-60">
+          {open ? (
+            <ChevronDownIcon size="12px" />
+          ) : (
+            <ChevronRightIcon size="12px" />
+          )}
+        </span>
+        <span className={`truncate ${active ? "text-warning" : ""}`}>
+          {summary}
+        </span>
+        {active && <span className="shrink-0 animate-pulse">...</span>}
+        {!active && !open && toolNames.length > 0 && (
+          <span className="shrink-0 opacity-60">{toolNames.join(", ")}</span>
+        )}
+        {failed.length > 0 && (
+          <span className="shrink-0 text-danger">
+            {failed.length} failed
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="ml-4 space-y-0.5">
+          {parts.map((part) => (
+            <ToolCallItem
+              key={part.callID || part.id}
+              part={part}
+              port={port}
+              provider={provider}
+              sessionId={sessionId}
+              pendingQuestions={pendingQuestions}
+              onQuestionResolved={onQuestionResolved}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
 const MessageItem = memo(function MessageItem({
   message,
   port,
   provider,
   sessionId,
+  showTools = true,
   pendingPermissions,
   pendingQuestions,
   onPermissionResolved,
@@ -829,6 +927,7 @@ const MessageItem = memo(function MessageItem({
   port: number;
   provider?: BackendProvider;
   sessionId: string;
+  showTools?: boolean;
   pendingPermissions: PermissionRequest[];
   pendingQuestions: QuestionRequest[];
   onPermissionResolved: (requestId: string) => void;
@@ -837,7 +936,7 @@ const MessageItem = memo(function MessageItem({
   const textContent = getMessageContent(message.parts);
   const isAssistant = message.info.role === "assistant";
   const messageError = isAssistant ? getAssistantError(message) : null;
-  const toolCalls = message.parts.filter(isToolPart);
+  const toolCalls = showTools ? message.parts.filter(isToolPart) : [];
   const messagePermissions = pendingPermissions.filter(
     (perm) => perm.tool?.messageID === message.info.id,
   );
@@ -926,6 +1025,73 @@ function hasVisibleContent(message: MessageWithParts): boolean {
     messageError ||
     hasDisplayableArtifacts(message)
   );
+}
+
+type MessageRow =
+  | { kind: "message"; key: string; message: MessageWithParts; showTools: boolean }
+  | { kind: "tools"; key: string; parts: ToolPart[] };
+
+/**
+ * Flatten the message list into render rows, folding runs of tool calls into
+ * one collapsible group. A turn arrives as one assistant message per step, so
+ * a run is only meaningful if it can cross message boundaries — hence rows
+ * rather than rendering each message independently.
+ *
+ * A message's text is emitted before its tool calls (the order the parts are
+ * already in), so the tool calls of several consecutive steps merge into a
+ * single group while the prose around them stays put. Messages carrying a
+ * pending permission are never folded: the approval UI lives inside them.
+ */
+function buildMessageRows(
+  messages: MessageWithParts[],
+  pendingPermissions: PermissionRequest[],
+): MessageRow[] {
+  const rows: MessageRow[] = [];
+  let run: ToolPart[] = [];
+
+  const flush = () => {
+    if (!run.length) return;
+    const first = run[0];
+    rows.push({ kind: "tools", key: `tools-${first.callID || first.id}`, parts: run });
+    run = [];
+  };
+
+  for (const message of messages) {
+    const awaitingPermission = pendingPermissions.some(
+      (permission) => permission.tool?.messageID === message.info.id,
+    );
+
+    if (message.info.role !== "assistant" || awaitingPermission) {
+      flush();
+      rows.push({
+        kind: "message",
+        key: message.info.id,
+        message,
+        showTools: true,
+      });
+      continue;
+    }
+
+    const hasProse = !!(
+      getMessageContent(message.parts) ||
+      getAssistantError(message) ||
+      hasDisplayableArtifacts(message)
+    );
+    if (hasProse) {
+      flush();
+      rows.push({
+        kind: "message",
+        key: message.info.id,
+        message,
+        showTools: false,
+      });
+    }
+
+    run.push(...message.parts.filter(isToolPart));
+  }
+
+  flush();
+  return rows;
 }
 
 function SessionPage() {
@@ -1081,6 +1247,15 @@ function SessionPage() {
   const unlinkedPermissions = pendingPermissions.filter(
     (perm) =>
       !perm.tool?.messageID || !visibleMessageIds.has(perm.tool.messageID),
+  );
+
+  const messageRows = useMemo(
+    () =>
+      buildMessageRows(
+        messages.filter((message) => hasVisibleContent(message)),
+        pendingPermissions,
+      ),
+    [messages, pendingPermissions],
   );
 
   const scrollToBottom = useCallback(() => {
@@ -1301,21 +1476,33 @@ function SessionPage() {
         )}
 
         <div className="divide-y divide-dashed divide-border overflow-x-hidden">
-          {messages
-            .filter((message) => hasVisibleContent(message))
-            .map((message) => (
+          {messageRows.map((row) =>
+            row.kind === "message" ? (
               <MessageItem
-                key={message.info.id}
-                message={message}
+                key={row.key}
+                message={row.message}
                 port={port}
                 provider={provider}
                 sessionId={sessionId}
+                showTools={row.showTools}
                 pendingPermissions={pendingPermissions}
                 pendingQuestions={pendingQuestions}
                 onPermissionResolved={handlePermissionResolved}
                 onQuestionResolved={handleQuestionResolved}
               />
-            ))}
+            ) : (
+              <div key={row.key} className="py-2 px-6">
+                <ToolCallGroup
+                  parts={row.parts}
+                  port={port}
+                  provider={provider}
+                  sessionId={sessionId}
+                  pendingQuestions={pendingQuestions}
+                  onQuestionResolved={handleQuestionResolved}
+                />
+              </div>
+            ),
+          )}
           {unlinkedPermissions.length > 0 && (
             <div className="px-6 py-4 space-y-2 border-t border-dashed border-border">
               {unlinkedPermissions.map((permission) => (
