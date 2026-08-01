@@ -20,11 +20,18 @@ import {
   IconMagnifier,
   IconPen,
   IconSquareFeather,
+  DocumentIcon,
   IconUser,
   InformationCircleIcon,
+  PaperclipIcon,
   SendIcon,
   StopIcon,
 } from "@/components/icons/lucide";
+import { AttachmentTray } from "@/components/attachment-tray";
+import {
+  useAttachments,
+  type Attachment,
+} from "@/hooks/use-attachments";
 import { useAgentStore } from "@/stores/agent-store";
 import { useModelStore } from "@/stores/model-store";
 import { useBreadcrumb } from "@/contexts/breadcrumb-context";
@@ -38,6 +45,7 @@ import {
   type MessageWithParts,
   type Part,
   type ToolPart,
+  type FilePart,
   type PermissionRequest,
   type QuestionAnswer,
   type QuestionInfo,
@@ -844,6 +852,56 @@ const ToolCallItem = memo(function ToolCallItem({
  * naming the tool currently running. Anything that needs attention (a failure,
  * a question) opens the group on its own until you say otherwise.
  */
+function isFilePart(part: Part): part is FilePart {
+  return part.type === "file";
+}
+
+/**
+ * Attachments the user sent with a message. A data: URL renders straight from
+ * the message; a file: URL has to go through the fs endpoint, since the browser
+ * will not load file:// itself.
+ */
+function MessageAttachments({ message }: { message: MessageWithParts }) {
+  const files = message.parts.filter(isFilePart);
+  if (!files.length) return null;
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {files.map((file) => {
+        const src = file.url.startsWith("file://")
+          ? `/api/fs/file?path=${encodeURIComponent(file.url.slice("file://".length).split("?")[0])}`
+          : file.url;
+        const name = file.filename || "attachment";
+
+        if (file.mime.startsWith("image/")) {
+          return (
+            <a key={file.id} href={src} target="_blank" rel="noreferrer">
+              <img
+                src={src}
+                alt={name}
+                className="max-h-48 rounded-lg border border-border object-contain"
+              />
+            </a>
+          );
+        }
+
+        return (
+          <a
+            key={file.id}
+            href={src}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-2 py-1 text-xs hover:bg-muted/50"
+          >
+            <DocumentIcon className="size-4 shrink-0 text-muted-fg" />
+            <span className="max-w-48 truncate">{name}</span>
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 const ToolCallGroup = memo(function ToolCallGroup({
   parts,
   port,
@@ -951,7 +1009,8 @@ const MessageItem = memo(function MessageItem({
   const messagePermissions = pendingPermissions.filter(
     (perm) => perm.tool?.messageID === message.info.id,
   );
-  const hasMainContent = !!(textContent || messageError);
+  const hasAttachments = message.parts.some(isFilePart);
+  const hasMainContent = !!(textContent || messageError || hasAttachments);
 
   return (
     <div className="py-3 px-3 sm:px-6">
@@ -985,6 +1044,7 @@ const MessageItem = memo(function MessageItem({
                 </Markdown>
               )}
             </div>
+            <MessageAttachments message={message} />
             {messageError && (
               <ChatErrorAlert
                 title="Message failed"
@@ -1044,6 +1104,7 @@ function hasVisibleContent(message: MessageWithParts): boolean {
     textContent ||
     hasToolCalls ||
     messageError ||
+    message.parts.some(isFilePart) ||
     hasDisplayableArtifacts(message)
   );
 }
@@ -1181,6 +1242,10 @@ function SessionPage() {
   const isNearBottomRef = useRef(true);
   const prevMessagesLengthRef = useRef(0);
   const fileMention = useFileMention();
+  const { attachments, addFiles, removeAttachment, clearAttachments } =
+    useAttachments();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
 
   const messagesLoadError = messagesError?.message;
 
@@ -1334,7 +1399,11 @@ function SessionPage() {
   }, [sessionId]);
 
   const sendMessage = useCallback(
-    async (messageText: string, messageId: string) => {
+    async (
+      messageText: string,
+      messageId: string,
+      files: Attachment[],
+    ) => {
       if (!sessionId || !port) return;
 
       try {
@@ -1358,6 +1427,11 @@ function SessionPage() {
           body: JSON.stringify({
             messageID: messageId,
             text: messageText,
+            files: files.map((file) => ({
+              mime: file.mime,
+              filename: file.name,
+              url: file.url,
+            })),
             model:
               selectedModel.providerID && selectedModel.modelID
                 ? selectedModel
@@ -1415,8 +1489,9 @@ function SessionPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const messageText = input.trim();
+    const outgoingFiles = attachments;
     if (
-      !messageText ||
+      (!messageText && !outgoingFiles.length) ||
       !sessionId ||
       !port ||
       sending ||
@@ -1429,6 +1504,7 @@ function SessionPage() {
     setIsSubmitting(true);
     const messageId = createClientMessageId();
     setInput("");
+    clearAttachments();
     setSendError(null);
 
     const optimisticMessage: MessageWithParts = {
@@ -1441,19 +1517,32 @@ function SessionPage() {
         model: { providerID: "", modelID: "" },
       },
       parts: [
-        {
-          id: `${messageId}-part`,
+        ...outgoingFiles.map((file, index) => ({
+          id: `${messageId}-file-${index}`,
           sessionID: sessionId,
           messageID: messageId,
-          type: "text",
-          text: messageText,
-        },
+          type: "file" as const,
+          mime: file.mime,
+          filename: file.name,
+          url: file.url,
+        })),
+        ...(messageText
+          ? [
+              {
+                id: `${messageId}-part`,
+                sessionID: sessionId,
+                messageID: messageId,
+                type: "text" as const,
+                text: messageText,
+              },
+            ]
+          : []),
       ],
       isQueued: sending,
     };
     addOptimisticMessage(port, sessionId, optimisticMessage, provider);
 
-    void sendMessage(messageText, messageId).finally(() => {
+    void sendMessage(messageText, messageId, outgoingFiles).finally(() => {
       submitLockRef.current = false;
       setIsSubmitting(false);
     });
@@ -1550,7 +1639,26 @@ function SessionPage() {
         )}
       </div>
 
-      <div className="border-t border-border px-3 py-2 sm:px-4 sm:py-3 shrink-0 relative">
+      <div
+        className={`border-t border-border px-3 py-2 sm:px-4 sm:py-3 shrink-0 relative ${
+          isDraggingFiles ? "bg-muted/40" : ""
+        }`}
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          setIsDraggingFiles(true);
+        }}
+        onDragLeave={(e) => {
+          if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+          setIsDraggingFiles(false);
+        }}
+        onDrop={(e) => {
+          if (!e.dataTransfer.files.length) return;
+          e.preventDefault();
+          setIsDraggingFiles(false);
+          void addFiles(e.dataTransfer.files);
+        }}
+      >
         <FileMentionPopover
           isOpen={fileMention.isOpen}
           searchQuery={fileMention.searchQuery}
@@ -1566,6 +1674,21 @@ function SessionPage() {
           }}
         />
         <form onSubmit={handleSubmit} className="w-full">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.length) void addFiles(e.target.files);
+              // Reset so picking the same file twice still fires onChange.
+              e.target.value = "";
+            }}
+          />
+          <AttachmentTray
+            attachments={attachments}
+            onRemove={removeAttachment}
+          />
           {sendError && (
             <ChatErrorAlert
               title="Message failed"
@@ -1623,15 +1746,38 @@ function SessionPage() {
                 }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  if (input.trim() && !sending && !submitLockRef.current) {
+                  if (
+                    (input.trim() || attachments.length) &&
+                    !sending &&
+                    !submitLockRef.current
+                  ) {
                     handleSubmit(e as unknown as React.FormEvent);
                   }
                 }
+              }}
+              onPaste={(e) => {
+                const files = [...e.clipboardData.files];
+                if (!files.length) return;
+                e.preventDefault();
+                void addFiles(files);
               }}
               placeholder="Type your message... (use @ to mention files)"
               className="min-h-32 max-h-32 w-full resize-none overflow-y-auto pr-14 pb-12"
               rows={5}
             />
+            <Button
+              type="button"
+              isCircle
+              size="sq-sm"
+              intent="plain"
+              aria-label="Attach files"
+              className="absolute left-3 bottom-3"
+              onPress={() => fileInputRef.current?.click()}
+            >
+              <span className="grid size-4 place-items-center">
+                <PaperclipIcon size="16px" />
+              </span>
+            </Button>
             {sending ? (
               <Button
                 type="button"
@@ -1654,7 +1800,7 @@ function SessionPage() {
             ) : (
               <Button
                 type="submit"
-                isDisabled={!input.trim()}
+                isDisabled={!input.trim() && !attachments.length}
                 isCircle
                 size="sq-sm"
                 aria-label="Send message"

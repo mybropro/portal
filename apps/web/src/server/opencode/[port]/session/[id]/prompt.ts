@@ -11,18 +11,35 @@ import {
 const PROMPT_DEDUPE_TTL_MS = 2 * 60 * 1000;
 const recentPromptRequests = new Map<string, number>();
 
-const promptBodySchema = z.object({
-  messageID: z.string().optional(),
-  text: z.string().min(1),
-  model: z
-    .object({
-      providerID: z.string(),
-      modelID: z.string(),
-      variant: z.string().optional(),
-    })
-    .optional(),
-  agent: z.string().optional(),
+// opencode takes attachments as file parts whose url carries the payload: a
+// data: URL holds the bytes inline (images go to the model, text/plain is
+// decoded and inlined), and a file: URL is read off disk. No upload endpoint
+// is involved either way.
+const attachmentSchema = z.object({
+  mime: z.string().min(1),
+  filename: z.string().optional(),
+  url: z.string().min(1),
 });
+
+const promptBodySchema = z
+  .object({
+    messageID: z.string().optional(),
+    text: z.string(),
+    files: z.array(attachmentSchema).optional(),
+    model: z
+      .object({
+        providerID: z.string(),
+        modelID: z.string(),
+        variant: z.string().optional(),
+      })
+      .optional(),
+    agent: z.string().optional(),
+  })
+  // An attachment on its own is a legitimate message; empty everything is not.
+  .refine((body) => body.text.trim().length > 0 || body.files?.length, {
+    message: "A message needs text or at least one attachment",
+    path: ["text"],
+  });
 
 function prunePromptRequests(now: number) {
   for (const [key, expiresAt] of recentPromptRequests) {
@@ -64,10 +81,22 @@ export default defineHandler(async (event) => {
 
   const client = getOpencodeClient(port);
   try {
+    // Attachments lead, matching how opencode's own clients order them: the
+    // text reads as a caption on what came before it.
+    const fileParts = (body.files ?? []).map((file) => ({
+      type: "file" as const,
+      mime: file.mime,
+      filename: file.filename,
+      url: file.url,
+    }));
+    const textParts = body.text.trim()
+      ? [{ type: "text" as const, text: body.text }]
+      : [];
+
     const promptInput = {
       sessionID: id,
       messageID: body.messageID,
-      parts: [{ type: "text" as const, text: body.text }],
+      parts: [...fileParts, ...textParts],
       model: body.model
         ? {
             providerID: body.model.providerID,

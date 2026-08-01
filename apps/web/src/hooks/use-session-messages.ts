@@ -13,6 +13,7 @@ import type {
   QuestionInfo,
   QuestionOption,
   QuestionRequest,
+  PromptFileAttachment,
   SessionMessage,
   SessionMessageAssistant,
   SessionMessageAssistantText,
@@ -33,6 +34,7 @@ import {
 export type {
   Message,
   Part,
+  FilePart,
   ToolPart,
   ToolState,
   TextPart,
@@ -197,11 +199,32 @@ function contentToText(content: ToolContent[] | undefined) {
     .join("\n");
 }
 
+/**
+ * Attachments a user sent with their message. They arrive as file parts whose
+ * url carries the payload (a data: URL for something uploaded from the phone,
+ * file: for something already on disk) and would otherwise be dropped on the
+ * way through the normalized message shape.
+ */
+function filesFromParts(parts: Part[]): PromptFileAttachment[] {
+  return parts
+    .filter((part): part is FilePart => part.type === "file")
+    .map((part) => ({
+      uri: part.url,
+      mime: part.mime,
+      ...(part.filename ? { name: part.filename } : {}),
+    }));
+}
+
 function legacyTextFromParts(parts: Part[]) {
   return parts
     .filter(
       (part): part is TextPart =>
-        part.type === "text" && typeof part.text === "string",
+        part.type === "text" &&
+        typeof part.text === "string" &&
+        // opencode inlines an attachment's contents as synthetic text parts on
+        // the user's message. The attachment is already shown as a chip, so
+        // rendering those too would dump the whole file into the transcript.
+        !part.synthetic,
     )
     .map((part) => part.text)
     .join("\n\n");
@@ -366,10 +389,12 @@ export function legacyMessageToSessionMessage(
   message: MessageWithParts,
 ): SessionMessage {
   if (message.info.role === "user") {
+    const files = filesFromParts(message.parts);
     return {
       id: message.info.id,
       type: "user",
       text: legacyTextFromParts(message.parts),
+      ...(files.length ? { files } : {}),
       time: message.info.time,
       ...(message.isQueued ? { metadata: { portalQueued: true } } : {}),
     };
@@ -520,6 +545,23 @@ function shellAssistantInfo(
     },
     cost: 0,
     tokens: EMPTY_TOKENS,
+  };
+}
+
+function filePart(
+  id: string,
+  sessionId: string,
+  messageId: string,
+  file: PromptFileAttachment,
+): FilePart {
+  return {
+    id,
+    sessionID: sessionId,
+    messageID: messageId,
+    type: "file",
+    mime: file.mime,
+    ...(file.name ? { filename: file.name } : {}),
+    url: file.uri,
   };
 }
 
@@ -732,6 +774,14 @@ export function sessionMessagesToLegacy(
             {
               info: legacyUserInfo(message, sessionId),
               parts: [
+                ...(message.files ?? []).map((file, index) =>
+                  filePart(
+                    `${message.id}-file-${index}`,
+                    sessionId,
+                    message.id,
+                    file,
+                  ),
+                ),
                 textPart(
                   `${message.id}-text`,
                   sessionId,
@@ -796,6 +846,9 @@ export function addOptimisticMessage(
     id: message.info.id,
     type: "user",
     text: legacyTextFromParts(message.parts),
+    ...(filesFromParts(message.parts).length
+      ? { files: filesFromParts(message.parts) }
+      : {}),
     time: {
       created: message.info.time.created,
     },

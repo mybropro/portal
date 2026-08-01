@@ -24,6 +24,7 @@ import {
   LogOut,
   MessageCircle,
   MessageSquare,
+  Paperclip,
   Minus,
   Monitor,
   Moon,
@@ -102,3 +103,4 @@ export const IconThemeSystem = createAppIcon(Monitor, "18px");
 export const IconUser = createAppIcon(User);
 export const SendIcon = createAppIcon(Send);
 export const StopIcon = createAppIcon(Square);
+export const PaperclipIcon = createAppIcon(Paperclip);
