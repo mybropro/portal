@@ -20,7 +20,9 @@ function AppLayout() {
         <AppSidebar intent="inset" collapsible="dock" />
         <SidebarInset className="overflow-hidden">
           <AppSidebarNav />
-          <div className="flex-1 overflow-auto p-4">
+          {/* No padding here: the session view wants the full pane, and the
+              other routes already center themselves with their own gutters. */}
+          <div className="flex-1 overflow-auto">
             <Outlet />
           </div>
         </SidebarInset>

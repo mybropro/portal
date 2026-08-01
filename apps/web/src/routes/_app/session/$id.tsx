@@ -954,7 +954,7 @@ const MessageItem = memo(function MessageItem({
   const hasMainContent = !!(textContent || messageError);
 
   return (
-    <div className="py-3 px-6">
+    <div className="py-3 px-3 sm:px-6">
       {hasMainContent && (
         <div className="flex gap-2">
           {isAssistant ? (
@@ -1473,7 +1473,7 @@ function SessionPage() {
   // The event stream carries the live turn; session.idle reconciles at the end.
 
   return (
-    <div className="flex h-full flex-col -m-4">
+    <div className="flex h-full flex-col">
       <div
         className="flex-1 overflow-auto overflow-x-hidden"
         ref={chatContainerRef}
@@ -1485,7 +1485,7 @@ function SessionPage() {
         )}
 
         {messagesLoadError && (
-          <div className="rounded-md bg-danger-subtle p-4 m-4 text-danger-subtle-fg">
+          <div className="rounded-md bg-danger-subtle p-3 m-3 text-danger-subtle-fg">
             Error: {messagesLoadError}
           </div>
         )}
@@ -1512,7 +1512,7 @@ function SessionPage() {
                 onQuestionResolved={handleQuestionResolved}
               />
             ) : (
-              <div key={row.key} className="py-2 px-6">
+              <div key={row.key} className="py-2 px-3 sm:px-6">
                 <ToolCallGroup
                   parts={row.parts}
                   port={port}
@@ -1525,7 +1525,7 @@ function SessionPage() {
             ),
           )}
           {unlinkedPermissions.length > 0 && (
-            <div className="px-6 py-4 space-y-2 border-t border-dashed border-border">
+            <div className="px-3 sm:px-6 py-4 space-y-2 border-t border-dashed border-border">
               {unlinkedPermissions.map((permission) => (
                 <PermissionRequestForm
                   key={permission.id}
@@ -1550,7 +1550,7 @@ function SessionPage() {
         )}
       </div>
 
-      <div className="border-t border-border p-4 shrink-0 relative">
+      <div className="border-t border-border px-3 py-2 sm:px-4 sm:py-3 shrink-0 relative">
         <FileMentionPopover
           isOpen={fileMention.isOpen}
           searchQuery={fileMention.searchQuery}
