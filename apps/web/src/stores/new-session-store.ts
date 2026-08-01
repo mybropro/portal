@@ -20,6 +20,17 @@ function readLastDir(): string | null {
   return window.localStorage.getItem(LAST_DIR_KEY);
 }
 
+/**
+ * `?dirs=` suffix for the endpoints that have to look beyond the backend's own
+ * working directory (/sessions, /session/status). Shared so the SWR keys the
+ * hooks read and the keys the event stream mutates cannot drift apart.
+ */
+export function dirsQuery(recents: string[]) {
+  return recents.length
+    ? `?dirs=${recents.map(encodeURIComponent).join(",")}`
+    : "";
+}
+
 interface NewSessionState {
   open: boolean;
   lastDir: string | null;

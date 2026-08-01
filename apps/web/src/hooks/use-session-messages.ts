@@ -15,6 +15,7 @@ import type {
   QuestionRequest,
   SessionMessage,
   SessionMessageAssistant,
+  SessionMessageAssistantText,
   SessionMessageAssistantTool,
   SessionMessageShell,
   ToolFileContent,
@@ -284,35 +285,64 @@ function legacyToolTime(part: ToolPart, fallback: number) {
   }
 }
 
+export type AssistantContentItem = SessionMessageAssistant["content"][number];
+
+/**
+ * The part id a content item came from. Streaming deltas address parts by id,
+ * so every item has to be traceable back to one. `reasoning` and `tool` carry
+ * an id in the SDK type already; `text` does not, so `legacyPartToContent`
+ * attaches one and this reads it back.
+ */
+export function contentItemPartId(item: AssistantContentItem) {
+  return (item as { id?: string }).id;
+}
+
+/**
+ * Convert one legacy part into an assistant content item, or null for parts the
+ * UI does not render (step-start, step-finish, patch, file, ...).
+ */
+export function legacyPartToContent(
+  part: Part,
+  fallbackTime: number,
+): AssistantContentItem | null {
+  if (part.type === "text") {
+    const text: SessionMessageAssistantText & { id: string } = {
+      type: "text",
+      text: part.text,
+      id: part.id,
+    };
+    return text;
+  }
+
+  if (part.type === "reasoning") {
+    return { type: "reasoning", id: part.id, text: part.text };
+  }
+
+  if (part.type === "tool") {
+    return {
+      type: "tool",
+      id: part.callID,
+      name: part.tool,
+      provider: {
+        executed: part.state.status !== "pending",
+        metadata: part.metadata,
+      },
+      time: legacyToolTime(part, fallbackTime),
+      state: legacyToolStateToSession(part.state),
+    };
+  }
+
+  return null;
+}
+
 function legacyAssistantContent(
   message: MessageWithParts,
 ): SessionMessageAssistant["content"] {
   const content: SessionMessageAssistant["content"] = [];
 
   message.parts.forEach((part) => {
-    if (part.type === "text") {
-      content.push({ type: "text", text: part.text });
-      return;
-    }
-
-    if (part.type === "reasoning") {
-      content.push({ type: "reasoning", id: part.id, text: part.text });
-      return;
-    }
-
-    if (part.type === "tool") {
-      content.push({
-        type: "tool",
-        id: part.callID,
-        name: part.tool,
-        provider: {
-          executed: part.state.status !== "pending",
-          metadata: part.metadata,
-        },
-        time: legacyToolTime(part, message.info.time.created),
-        state: legacyToolStateToSession(part.state),
-      });
-    }
+    const item = legacyPartToContent(part, message.info.time.created);
+    if (item) content.push(item);
   });
 
   return content;
@@ -332,7 +362,7 @@ function legacyTokensToSession(
   };
 }
 
-function legacyMessageToSessionMessage(
+export function legacyMessageToSessionMessage(
   message: MessageWithParts,
 ): SessionMessage {
   if (message.info.role === "user") {

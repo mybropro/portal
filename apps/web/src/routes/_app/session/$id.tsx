@@ -1271,15 +1271,10 @@ function SessionPage() {
     setIsSubmitting(false);
   }, [port, sessionId]);
 
-  useEffect(() => {
-    if (!sending || !port || !sessionId) return;
-
-    const interval = window.setInterval(() => {
-      mutateSessionMessages(port, sessionId, provider);
-    }, 1500);
-
-    return () => window.clearInterval(interval);
-  }, [port, provider, sending, sessionId]);
+  // No polling while sending: opencode does not persist a message's parts until
+  // the turn ends, so a mid-turn refetch returns the message frozen as it was
+  // when the turn started and throws away the text streamed in from deltas.
+  // The event stream carries the live turn; session.idle reconciles at the end.
 
   return (
     <div className="flex h-full flex-col -m-4">

@@ -1,5 +1,5 @@
 import useSWR from "swr";
-import { useNewSessionStore } from "@/stores/new-session-store";
+import { dirsQuery, useNewSessionStore } from "@/stores/new-session-store";
 import { OPENCODE_BASE_PATH, OPENCODE_PORT } from "@/lib/backend-url";
 import type { SessionStatus } from "@opencode-ai/sdk/v2";
 
@@ -17,10 +17,7 @@ function useBackend() {
 
 export function useSessions() {
   const backend = useBackend();
-  const recents = useNewSessionStore((s) => s.recents);
-  const dirs = recents.length
-    ? `?dirs=${recents.map(encodeURIComponent).join(",")}`
-    : "";
+  const dirs = dirsQuery(useNewSessionStore((s) => s.recents));
 
   return useSWR(
     backend ? `${backend.basePath}/sessions${dirs}` : null,
@@ -39,9 +36,10 @@ export function useSessionMessages(id: string | null) {
 
 export function useSessionStatuses() {
   const backend = useBackend();
+  const dirs = dirsQuery(useNewSessionStore((s) => s.recents));
 
   return useSWR<Record<string, SessionStatus>>(
-    backend ? `${backend.basePath}/session/status` : null,
+    backend ? `${backend.basePath}/session/status${dirs}` : null,
     fetcher,
     {
       revalidateOnFocus: false,

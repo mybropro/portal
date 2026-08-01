@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import { mutate } from "swr";
 import type {
   Event,
+  Message,
+  Part,
   PermissionRequest,
   QuestionRequest,
   Session,
@@ -13,10 +15,15 @@ import type {
   SessionMessageAssistantTool,
 } from "@opencode-ai/sdk/v2";
 import {
+  contentItemPartId,
   getMessagesKey,
+  type AssistantContentItem,
+  legacyMessageToSessionMessage,
+  legacyPartToContent,
   sortSessionMessages,
 } from "@/hooks/use-session-messages";
 import { backendBasePath, type BackendProvider } from "@/lib/backend-url";
+import { dirsQuery, useNewSessionStore } from "@/stores/new-session-store";
 
 type RuntimeEvent =
   | Event
@@ -26,8 +33,15 @@ type RuntimeEvent =
       properties: Record<string, unknown>;
     };
 
+// /sessions and /session/status are keyed with the picker's recents, so these
+// must reproduce the hooks' keys exactly or the live updates land on a cache
+// entry nothing reads.
+function currentDirsQuery() {
+  return dirsQuery(useNewSessionStore.getState().recents);
+}
+
 function sessionsKey(port: number, provider?: BackendProvider) {
-  return `${backendBasePath(provider, port)}/sessions`;
+  return `${backendBasePath(provider, port)}/sessions${currentDirsQuery()}`;
 }
 
 function permissionsKey(port: number, provider?: BackendProvider) {
@@ -43,7 +57,7 @@ function currentProjectKey(port: number, provider?: BackendProvider) {
 }
 
 function sessionStatusKey(port: number, provider?: BackendProvider) {
-  return `${backendBasePath(provider, port)}/session/status`;
+  return `${backendBasePath(provider, port)}/session/status${currentDirsQuery()}`;
 }
 
 function upsertById<T extends { id: string }>(items: T[] | undefined, item: T) {
@@ -147,6 +161,20 @@ const messageRevalidationTimers = new Map<
   ReturnType<typeof setTimeout>
 >();
 
+/**
+ * Sessions with a turn in flight. opencode does not persist a message's parts
+ * until the turn ends — refetching mid-turn returns the message frozen at
+ * whatever it looked like when the turn started, which would wipe out the text
+ * assembled from deltas. So while a session is busy the event stream is the
+ * only source of truth, and `session.idle` reconciles against the server.
+ */
+const streamingSessions = new Set<string>();
+
+function setStreaming(sessionID: string, streaming: boolean) {
+  if (streaming) streamingSessions.add(sessionID);
+  else streamingSessions.delete(sessionID);
+}
+
 function messageRevalidationKey(
   port: number,
   provider: BackendProvider | undefined,
@@ -160,6 +188,8 @@ function revalidateMessagesSoon(
   provider: BackendProvider | undefined,
   sessionID: string,
 ) {
+  if (streamingSessions.has(sessionID)) return;
+
   const key = messageRevalidationKey(port, provider, sessionID);
   if (messageRevalidationTimers.has(key)) return;
 
@@ -183,6 +213,7 @@ function revalidateMessagesNow(
     messageRevalidationTimers.delete(key);
   }
 
+  if (streamingSessions.has(sessionID)) return;
   revalidateMessages(port, provider, sessionID);
 }
 
@@ -291,6 +322,126 @@ function appendAssistantContent(
   }));
 }
 
+function findAssistantIndex(messages: SessionMessage[], messageID: string) {
+  return messages.findIndex(
+    (message) => message.id === messageID && message.type === "assistant",
+  );
+}
+
+/**
+ * Apply a `message.updated` info blob. It carries no parts, so an existing
+ * message keeps whatever content the stream has already accumulated.
+ */
+function upsertAssistantInfo(messages: SessionMessage[], info: Message) {
+  const next = legacyMessageToSessionMessage({ info, parts: [] });
+  if (next.type !== "assistant") return messages;
+
+  const index = findAssistantIndex(messages, info.id);
+  if (index < 0) return sortSessionMessages([...messages, next]);
+
+  const existing = messages[index];
+  if (existing.type !== "assistant") return messages;
+  return replaceMessageAt(messages, index, {
+    ...next,
+    content: existing.content,
+  });
+}
+
+function upsertAssistantPart(
+  messages: SessionMessage[],
+  part: Part,
+  onMiss: () => void,
+) {
+  const index = findAssistantIndex(messages, part.messageID);
+  if (index < 0) {
+    onMiss();
+    return messages;
+  }
+
+  const assistant = messages[index];
+  if (assistant.type !== "assistant") {
+    onMiss();
+    return messages;
+  }
+
+  const item = legacyPartToContent(part, assistant.time.created);
+  if (!item) return messages;
+
+  const partID = contentItemPartId(item);
+  const contentIndex = findLastIndex(
+    assistant.content,
+    (existing) => contentItemPartId(existing) === partID,
+  );
+
+  const content = [...assistant.content];
+  if (contentIndex >= 0) {
+    content[contentIndex] = mergeStreamedText(assistant.content[contentIndex], item);
+  } else {
+    content.push(item);
+  }
+
+  return replaceMessageAt(messages, index, { ...assistant, content });
+}
+
+/**
+ * `message.part.updated` snapshots a part's text, and that snapshot can lag the
+ * deltas already applied — replacing outright makes the message visibly shrink
+ * and then regrow. Streamed text only ever grows, so keep whichever is longer.
+ */
+function mergeStreamedText(
+  existing: AssistantContentItem,
+  incoming: AssistantContentItem,
+): AssistantContentItem {
+  if (existing.type !== incoming.type) return incoming;
+  if (incoming.type !== "text" && incoming.type !== "reasoning") return incoming;
+
+  const previous = existing as typeof incoming;
+  return previous.text.length > incoming.text.length
+    ? { ...incoming, text: previous.text }
+    : incoming;
+}
+
+/**
+ * Append a streamed token to the part it belongs to. Anything we cannot place
+ * (message or part not in cache yet, e.g. the tab opened mid-turn) falls back
+ * to a refetch via `onMiss` rather than guessing.
+ */
+function appendPartDelta(
+  messages: SessionMessage[],
+  messageID: string,
+  partID: string,
+  delta: string,
+  onMiss: () => void,
+) {
+  const index = findAssistantIndex(messages, messageID);
+  if (index < 0) {
+    onMiss();
+    return messages;
+  }
+
+  const assistant = messages[index];
+  if (assistant.type !== "assistant") {
+    onMiss();
+    return messages;
+  }
+
+  const contentIndex = findLastIndex(
+    assistant.content,
+    (item) => contentItemPartId(item) === partID,
+  );
+  if (contentIndex < 0) {
+    onMiss();
+    return messages;
+  }
+
+  const item = assistant.content[contentIndex];
+  if (item.type !== "text" && item.type !== "reasoning") return messages;
+
+  const content = [...assistant.content];
+  content[contentIndex] = { ...item, text: `${item.text}${delta}` };
+  return replaceMessageAt(messages, index, { ...assistant, content });
+}
+
 function removeMatchingOptimisticUser(
   messages: SessionMessage[],
   text: string,
@@ -352,6 +503,10 @@ function applyEvent(
       break;
 
     case "session.status":
+      setStreaming(
+        event.properties.sessionID,
+        event.properties.status.type !== "idle",
+      );
       mutateSessionStatuses(port, provider, (items) => ({
         ...items,
         [event.properties.sessionID]: event.properties.status,
@@ -359,6 +514,9 @@ function applyEvent(
       break;
 
     case "session.idle":
+      // Clear the streaming flag first so the reconcile below is allowed
+      // through — this is the one refetch per turn that the server can answer.
+      setStreaming(event.properties.sessionID, false);
       mutateSessionStatuses(port, provider, (items) => ({
         ...items,
         [event.properties.sessionID]: { type: "idle" },
@@ -832,14 +990,42 @@ function applyEvent(
       });
       break;
 
-    case "message.updated":
-    case "message.part.updated":
-      revalidateMessagesNow(port, provider, event.properties.sessionID);
+    case "message.updated": {
+      const { sessionID, info } = event.properties;
+      // User messages are rewritten from their parts, which this event does not
+      // carry, so let a refetch own them. It fires ~3x per turn (opencode keeps
+      // amending the prompt's summary), so it has to be the debounced path.
+      if (info.role !== "assistant") {
+        revalidateMessagesSoon(port, provider, sessionID);
+        break;
+      }
+      mutateMessages(port, provider, sessionID, (items) =>
+        upsertAssistantInfo(items, info),
+      );
       break;
+    }
 
-    case "message.part.delta":
-      revalidateMessagesSoon(port, provider, event.properties.sessionID);
+    case "message.part.updated": {
+      const { sessionID, part } = event.properties;
+      const onMiss = () => revalidateMessagesSoon(port, provider, sessionID);
+      mutateMessages(port, provider, sessionID, (items) =>
+        upsertAssistantPart(items, part, onMiss),
+      );
       break;
+    }
+
+    case "message.part.delta": {
+      const { sessionID, messageID, partID, delta } = event.properties;
+      const onMiss = () => revalidateMessagesSoon(port, provider, sessionID);
+      if (typeof delta !== "string") {
+        onMiss();
+        break;
+      }
+      mutateMessages(port, provider, sessionID, (items) =>
+        appendPartDelta(items, messageID, partID, delta, onMiss),
+      );
+      break;
+    }
 
     case "message.removed":
     case "message.part.removed":
