@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState, useCallback, useMemo, memo } from "react";
-import Markdown from "react-markdown";
+import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Ripples } from "ldrs/react";
 import "ldrs/react/Ripples.css";
@@ -287,6 +287,17 @@ function parseToolQuestions(part: ToolPart): QuestionInfo[] {
     }))
     .filter((q) => !!q.question);
 }
+
+// A table gets its own scroll box rather than being squeezed into the phone's
+// width — four columns of prose collapse to ~100px each and become unreadable.
+// Sizing lives in main.css under .prose table.
+const MARKDOWN_COMPONENTS: Components = {
+  table: ({ node: _node, ...props }) => (
+    <div className="overflow-x-auto">
+      <table {...props} />
+    </div>
+  ),
+};
 
 function hasToolQuestions(part: ToolPart): boolean {
   return (
@@ -951,17 +962,27 @@ const MessageItem = memo(function MessageItem({
           ) : (
             <IconUser size="16px" className="shrink-0 mt-1" />
           )}
-          <div className="flex-1">
+          {/* min-w-0: a flex item defaults to min-width:auto, so without this
+              a wide code block or table stretches the message past the viewport
+              instead of scrolling inside its own box. break-words handles the
+              other half — a single unbreakable token (long inline code, a URL)
+              that no amount of scrolling would bring back into view. */}
+          <div className="flex-1 min-w-0">
             {!isAssistant && message.isQueued && (
               <Badge intent="warning" className="mb-1">
                 Queued
               </Badge>
             )}
             <div
-              className={`prose prose-sm dark:prose-invert max-w-none overflow-x-hidden ${!isAssistant ? "text-muted-fg" : ""}`}
+              className={`prose prose-sm dark:prose-invert max-w-none break-words ${!isAssistant ? "text-muted-fg" : ""}`}
             >
               {textContent && (
-                <Markdown remarkPlugins={[remarkGfm]}>{textContent}</Markdown>
+                <Markdown
+                  remarkPlugins={[remarkGfm]}
+                  components={MARKDOWN_COMPONENTS}
+                >
+                  {textContent}
+                </Markdown>
               )}
             </div>
             {messageError && (

@@ -256,34 +256,24 @@ body {
   }
 }
 
-/* Markdown prose table styling */
+/* Markdown prose table styling.
+   The table scrolls inside the wrapper react-markdown puts around it, so it is
+   sized to its content and only stretched to fill a wide message. It must NOT
+   be display:block with width-100% sections: that was the old shape here, and
+   it made overflow impossible, so table-layout:fixed squeezed four columns of
+   prose into ~100px each instead of letting them scroll. Cells wrap past a
+   readable width rather than running on forever. */
 .prose table {
-  display: block;
-  overflow-x: auto;
-  white-space: nowrap;
-  max-width: 100%;
-}
-
-.prose thead {
   display: table;
-  width: 100%;
-  table-layout: fixed;
-}
-
-.prose tbody {
-  display: table;
-  width: 100%;
-  table-layout: fixed;
-}
-
-.prose tr {
-  display: table-row;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
 }
 
 .prose th,
 .prose td {
-  display: table-cell;
   white-space: normal;
+  max-width: 24rem;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border);
 }
