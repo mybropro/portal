@@ -5,7 +5,7 @@ import {
   PlusIcon,
   TrashIcon,
 } from "@/components/icons/lucide";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { Link as UILink } from "@/components/ui/link";
 import { toast } from "@/components/ui/toast";
@@ -29,6 +29,7 @@ import {
   SidebarRail,
   SidebarSection,
   SidebarSectionGroup,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   useSessions,
@@ -36,7 +37,7 @@ import {
   useHostname,
 } from "@/hooks/use-opencode";
 import { useNewSessionStore } from "@/stores/new-session-store";
-import { useNavigate, useMatch } from "@tanstack/react-router";
+import { useLocation, useNavigate, useMatch } from "@tanstack/react-router";
 import type { Session } from "@opencode-ai/sdk/v2";
 
 function formatDirectoryPath(directory: string): string {
@@ -70,6 +71,24 @@ export default function AppSidebar(
   const openPicker = useNewSessionStore((s) => s.openPicker);
   const deleteSession = useDeleteSession();
   const sessions: Session[] = sessionsData ?? [];
+  const { setOpen, setIsOpenOnMobile, isMobile } = useSidebar();
+  const location = useLocation();
+  const lastPath = useRef(location.pathname);
+
+  // Opening a session gets the sidebar out of the way, the same as creating one
+  // does. Keyed off the route rather than the link's onPress: SidebarItem wraps
+  // the link in its own pressable, which swallows the press before it lands.
+  // This also covers reaching a session from the command menu.
+  useEffect(() => {
+    const previous = lastPath.current;
+    lastPath.current = location.pathname;
+    // Only on an actual navigation — landing on a session URL directly should
+    // leave the sidebar however the user had it.
+    if (previous === location.pathname) return;
+    if (!location.pathname.startsWith("/session/")) return;
+    if (isMobile) setIsOpenOnMobile(false);
+    else setOpen(false);
+  }, [location.pathname, isMobile, setOpen, setIsOpenOnMobile]);
 
   function handleNewSession() {
     openPicker();
