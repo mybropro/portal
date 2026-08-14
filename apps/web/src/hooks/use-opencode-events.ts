@@ -22,6 +22,7 @@ import {
   legacyPartToContent,
   sortSessionMessages,
 } from "@/hooks/use-session-messages";
+import { getErrorMessage } from "@/lib/error-message";
 import { backendBasePath, type BackendProvider } from "@/lib/backend-url";
 import { dirsQuery, useNewSessionStore } from "@/stores/new-session-store";
 
@@ -1036,12 +1037,73 @@ function applyEvent(
       revalidateMessages(port, provider, event.properties.sessionID);
       break;
 
-    case "session.error":
-      if (event.properties.sessionID) {
-        revalidateMessagesNow(port, provider, event.properties.sessionID);
-        void mutate(sessionStatusKey(port, provider));
+    case "session.error": {
+      const sessionID = event.properties.sessionID;
+      if (!sessionID) break;
+
+      // Errors end the turn. Clear the streaming gate first so the refetch
+      // below is allowed through; otherwise the UI can drop the retry banner
+      // and never paint the final failure.
+      setStreaming(sessionID, false);
+      mutateSessionStatuses(port, provider, (items) => ({
+        ...items,
+        [sessionID]: { type: "idle" },
+      }));
+
+      const errorName =
+        event.properties.error &&
+        typeof event.properties.error === "object" &&
+        "name" in event.properties.error
+          ? String(
+              (event.properties.error as { name?: unknown }).name ?? "",
+            )
+          : "";
+      const errorMessage = getErrorMessage(event.properties.error);
+
+      if (errorMessage && errorName !== "MessageAbortedError") {
+        mutateMessages(port, provider, sessionID, (items) => {
+          const index = findLastIndex(
+            items,
+            (item) => item.type === "assistant",
+          );
+          if (index < 0) {
+            return upsertMessage(items, {
+              id: event.id,
+              type: "assistant",
+              agent: "build",
+              model: {
+                id: "",
+                providerID: "",
+                variant: "default",
+              },
+              content: [],
+              finish: "error",
+              error: { type: "unknown", message: errorMessage },
+              time: {
+                created: Date.now(),
+                completed: Date.now(),
+              },
+            });
+          }
+
+          const assistant = items[index];
+          if (assistant.type !== "assistant") return items;
+          if (assistant.error) return items;
+          return replaceMessageAt(items, index, {
+            ...assistant,
+            finish: assistant.finish ?? "error",
+            error: { type: "unknown", message: errorMessage },
+            time: {
+              ...assistant.time,
+              completed: assistant.time.completed ?? Date.now(),
+            },
+          });
+        });
       }
+
+      revalidateMessages(port, provider, sessionID);
       break;
+    }
 
     case "permission.asked":
       mutatePermissions(port, provider, (items) =>

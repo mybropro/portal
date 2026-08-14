@@ -70,7 +70,12 @@ import {
   OPENCODE_PROVIDER,
   type BackendProvider,
 } from "@/lib/backend-url";
-import type { Agent, Session, SessionMessage } from "@opencode-ai/sdk/v2";
+import type {
+  Agent,
+  Session,
+  SessionMessage,
+  SessionStatus,
+} from "@opencode-ai/sdk/v2";
 
 export const Route = createFileRoute("/_app/session/$id")({
   component: SessionPage,
@@ -314,6 +319,22 @@ function hasToolQuestions(part: ToolPart): boolean {
   );
 }
 
+function stringifyArg(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function getToolOutput(part: ToolPart): string | null {
+  const state = part.state;
+  if (state.status === "completed") return state.output;
+  if (state.status === "error") return state.error;
+  return null;
+}
+
 function formatToolCall(part: ToolPart): {
   icon: React.ReactNode;
   label: string;
@@ -354,10 +375,9 @@ function formatToolCall(part: ToolPart): {
     }
     case "bash": {
       const command = String(input.command || input.cmd || "");
-      const shortCmd = command.split("\n")[0]?.slice(0, 50) || "";
       return {
         icon: "$",
-        label: `bash ${shortCmd}${command.length > 50 ? "..." : ""}`,
+        label: `bash ${command}`,
         details: input.description ? `# ${input.description}` : undefined,
       };
     }
@@ -379,13 +399,22 @@ function formatToolCall(part: ToolPart): {
         details: path ? `in ${path}` : undefined,
       };
     }
+    case "question": {
+      const count = parseToolQuestions(part).length;
+      return {
+        icon: "◼︎",
+        label: "question",
+        details:
+          count > 0 ? `${count} question${count === 1 ? "" : "s"}` : undefined,
+      };
+    }
     default: {
       const firstArg = Object.entries(input)[0];
       return {
         icon: "◼︎",
         label: toolName || "unknown",
         details: firstArg
-          ? `${firstArg[0]}: ${String(firstArg[1]).slice(0, 30)}...`
+          ? `${firstArg[0]}: ${stringifyArg(firstArg[1])}`
           : undefined,
       };
     }
@@ -476,6 +505,93 @@ function ChatErrorAlert({
           <div className="text-sm font-medium">{title}</div>
           <div className="mt-0.5 break-words text-xs opacity-90">{message}</div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function useRetryCountdown(next?: number) {
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    if (next == null) {
+      setSeconds(0);
+      return;
+    }
+
+    const tick = () => {
+      setSeconds(Math.max(0, Math.round((next - Date.now()) / 1000)));
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [next]);
+
+  return seconds;
+}
+
+function formatRetryMessage(message: string) {
+  if (
+    message.includes("exceeded your current quota") &&
+    message.includes("gemini")
+  ) {
+    return "gemini is way too hot right now";
+  }
+  if (message.length > 160) return `${message.slice(0, 160)}…`;
+  return message;
+}
+
+function SessionStatusBanner({ status }: { status?: SessionStatus }) {
+  const retry = status?.type === "retry" ? status : undefined;
+  const seconds = useRetryCountdown(retry?.next);
+
+  if (retry) {
+    const delay =
+      seconds > 0 ? `Retrying in ${seconds}s` : "Retrying";
+    const detail = `${delay} · attempt #${retry.attempt}`;
+    const action =
+      "action" in retry
+        ? (retry.action as
+            | {
+                label?: string;
+                title?: string;
+                link?: string;
+              }
+            | undefined)
+        : undefined;
+
+    return (
+      <div className="py-3 px-3 sm:px-6" role="status" aria-live="polite">
+        <div className="rounded-md border border-danger/20 bg-danger-subtle px-3 py-2 text-danger-subtle-fg">
+          <div className="flex items-start gap-2">
+            <Loader className="mt-0.5 size-4 shrink-0" aria-label="Retrying" />
+            <div className="min-w-0">
+              <div className="text-sm font-medium break-words">
+                {formatRetryMessage(retry.message)}
+              </div>
+              <div className="mt-0.5 text-xs opacity-90">{detail}</div>
+              {action?.link && (
+                <a
+                  href={action.link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 inline-block text-xs font-medium underline underline-offset-2"
+                >
+                  {action.label || action.title || "Open details"}
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="py-3 px-6">
+      <div className="flex items-center gap-2">
+        <Ripples size="30" speed="2" color="var(--color-primary)" />
+        <span className="text-sm text-muted-fg">Thinking...</span>
       </div>
     </div>
   );
@@ -781,6 +897,14 @@ const ToolCallItem = memo(function ToolCallItem({
   const isError = part.state.status === "error";
   const isPending =
     part.state.status === "pending" || part.state.status === "running";
+  const output = getToolOutput(part);
+  const colorClass = isError
+    ? "text-danger"
+    : isCompleted
+      ? "text-muted-fg"
+      : isPending
+        ? "text-warning"
+        : "text-fg";
 
   if (hasQuestions) {
     return (
@@ -823,22 +947,39 @@ const ToolCallItem = memo(function ToolCallItem({
     );
   }
 
+  if (output) {
+    return (
+      <details className={`group font-mono text-xs ${colorClass}`}>
+        <summary className="flex items-start gap-1.5 py-0.5 min-w-0 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+          <span className="opacity-60 shrink-0 mt-px">
+            <ChevronRightIcon
+              size="12px"
+              className="transition-transform group-open:rotate-90"
+            />
+          </span>
+          <span className="opacity-60 shrink-0 mt-px">{icon}</span>
+          <span className="flex-1 min-w-0 whitespace-pre-wrap break-words">
+            {label}
+            {details && <span className="opacity-60"> {details}</span>}
+          </span>
+        </summary>
+        <pre className="mt-1 ml-6 max-h-72 overflow-auto whitespace-pre-wrap break-words">
+          {output}
+        </pre>
+      </details>
+    );
+  }
+
   return (
     <div
-      className={`font-mono text-xs flex items-center gap-1.5 py-0.5 min-w-0 ${
-        isError
-          ? "text-danger"
-          : isCompleted
-            ? "text-muted-fg"
-            : isPending
-              ? "text-warning"
-              : "text-fg"
-      }`}
+      className={`font-mono text-xs flex items-start gap-1.5 py-0.5 min-w-0 ${colorClass}`}
     >
-      <span className="opacity-60 shrink-0">{icon}</span>
-      <span className="truncate">{label}</span>
-      {details && <span className="opacity-60 shrink-0">{details}</span>}
-      {isPending && <span className="animate-pulse shrink-0">...</span>}
+      <span className="opacity-60 shrink-0 mt-px">{icon}</span>
+      <span className="flex-1 min-w-0 whitespace-pre-wrap break-words">
+        {label}
+        {details && <span className="opacity-60"> {details}</span>}
+        {isPending && <span className="animate-pulse"> ...</span>}
+      </span>
     </div>
   );
 });
@@ -949,7 +1090,7 @@ const ToolCallGroup = memo(function ToolCallGroup({
             <ChevronRightIcon size="12px" />
           )}
         </span>
-        <span className={`truncate ${active ? "text-warning" : ""}`}>
+        <span className={`min-w-0 truncate ${active ? "text-warning" : ""}`}>
           {summary}
         </span>
         {active && <span className="shrink-0 animate-pulse">...</span>}
@@ -1629,14 +1770,7 @@ function SessionPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        {sending && (
-          <div className="py-3 px-6">
-            <div className="flex items-center gap-2">
-              <Ripples size="30" speed="2" color="var(--color-primary)" />
-              <span className="text-sm text-muted-fg">Thinking...</span>
-            </div>
-          </div>
-        )}
+        {sending && <SessionStatusBanner status={sessionStatus} />}
       </div>
 
       <div
