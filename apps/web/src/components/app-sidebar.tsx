@@ -244,7 +244,7 @@ export default function AppSidebar(
           </SidebarSection>
 
           <SidebarSection label="Sessions">
-            {!isMobile && !sidebarCollapsed && (
+            {!sidebarCollapsed && (
               <div
                 data-slot="sidebar-section-actions"
                 className="mb-1 flex items-center justify-between"
