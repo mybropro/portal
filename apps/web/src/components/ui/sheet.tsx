@@ -51,6 +51,9 @@ const sheetContentStyles = tv({
     isExiting: {
       true: "fade-in animate-out duration-300",
     },
+    noAnimation: {
+      true: "transition-none animate-none",
+    },
     side: {
       top: "entering:slide-in-from-top exiting:slide-out-to-top inset-x-0 top-0 rounded-b-2xl border-b",
       bottom:
@@ -84,6 +87,7 @@ interface SheetContentProps
   closeButton?: boolean;
   isBlurred?: boolean;
   isFloat?: boolean;
+  noAnimation?: boolean;
   side?: Sides;
   overlay?: Omit<ModalOverlayProps, "children">;
 }
@@ -92,6 +96,7 @@ const SheetContent = ({
   className,
   isBlurred = false,
   isDismissable: isDismissableInternal,
+  noAnimation = false,
   side = "right",
   role = "dialog",
   closeButton = true,
@@ -107,8 +112,8 @@ const SheetContent = ({
       className={({ isExiting, isEntering }) =>
         twJoin(
           "fixed inset-0 z-50 h-(--page-height) w-screen overflow-hidden bg-black/15",
-          isEntering && "fade-in animate-in duration-500",
-          isExiting && "fade-out animate-out duration-300",
+          isEntering && !noAnimation && "fade-in animate-in duration-500",
+          isExiting && !noAnimation && "fade-out animate-out duration-300",
           isBlurred && "backdrop-blur-sm backdrop-filter",
         )
       }
@@ -120,6 +125,7 @@ const SheetContent = ({
             ...renderProps,
             side,
             isFloat,
+            noAnimation,
             className,
           }),
         )}

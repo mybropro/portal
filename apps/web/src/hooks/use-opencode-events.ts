@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { mutate } from "swr";
+import { swrMutate as mutate } from "@/lib/swr";
 import type {
   Event,
   Message,
@@ -376,7 +376,10 @@ function upsertAssistantPart(
 
   const content = [...assistant.content];
   if (contentIndex >= 0) {
-    content[contentIndex] = mergeStreamedText(assistant.content[contentIndex], item);
+    content[contentIndex] = mergeStreamedText(
+      assistant.content[contentIndex],
+      item,
+    );
   } else {
     content.push(item);
   }
@@ -394,7 +397,8 @@ function mergeStreamedText(
   incoming: AssistantContentItem,
 ): AssistantContentItem {
   if (existing.type !== incoming.type) return incoming;
-  if (incoming.type !== "text" && incoming.type !== "reasoning") return incoming;
+  if (incoming.type !== "text" && incoming.type !== "reasoning")
+    return incoming;
 
   const previous = existing as typeof incoming;
   return previous.text.length > incoming.text.length
@@ -1054,9 +1058,7 @@ function applyEvent(
         event.properties.error &&
         typeof event.properties.error === "object" &&
         "name" in event.properties.error
-          ? String(
-              (event.properties.error as { name?: unknown }).name ?? "",
-            )
+          ? String((event.properties.error as { name?: unknown }).name ?? "")
           : "";
       const errorMessage = getErrorMessage(event.properties.error);
 

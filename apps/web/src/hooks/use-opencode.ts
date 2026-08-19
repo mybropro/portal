@@ -1,4 +1,5 @@
 import useSWR from "swr";
+import { useCallback, useEffect, useState } from "react";
 import { dirsQuery, useNewSessionStore } from "@/stores/new-session-store";
 import { OPENCODE_BASE_PATH, OPENCODE_PORT } from "@/lib/backend-url";
 import type { SessionStatus } from "@opencode-ai/sdk/v2";
@@ -137,6 +138,63 @@ export function useDeleteSession() {
 
     return res.json();
   };
+}
+
+/**
+ * Whether the browser believes it has network connectivity. localStorage-backed
+ * SWR caching makes the UI usable while offline, so a thin offline banner
+ * (rather than per-request error states) is the right signal to surface.
+ */
+export function useOnlineStatus() {
+  const [online, setOnline] = useState(() =>
+    typeof navigator !== "undefined" ? navigator.onLine : true,
+  );
+  const [backendReachable, setBackendReachable] = useState(true);
+
+  useEffect(() => {
+    const handleOnline = () => setOnline(true);
+    const handleOffline = () => setOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  // navigator.onLine is about the device's link, not whether THIS server is
+  // reachable. Probe the backend periodically while we think we're online.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const probe = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(`${OPENCODE_BASE_PATH}/health`, {
+          method: "GET",
+          cache: "no-store",
+        });
+        if (!cancelled) setBackendReachable(res.ok);
+      } catch {
+        if (!cancelled) setBackendReachable(false);
+      }
+    };
+
+    if (online) {
+      probe();
+      timer = setInterval(probe, 15000);
+    } else {
+      setBackendReachable(false);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [online]);
+
+  return { online: online && backendReachable, rawOnline: online };
 }
 
 export function usePermissions() {

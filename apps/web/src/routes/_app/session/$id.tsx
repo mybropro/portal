@@ -28,10 +28,7 @@ import {
   StopIcon,
 } from "@/components/icons/lucide";
 import { AttachmentTray } from "@/components/attachment-tray";
-import {
-  useAttachments,
-  type Attachment,
-} from "@/hooks/use-attachments";
+import { useAttachments, type Attachment } from "@/hooks/use-attachments";
 import { useAgentStore } from "@/stores/agent-store";
 import { useModelStore } from "@/stores/model-store";
 import { useBreadcrumb } from "@/contexts/breadcrumb-context";
@@ -58,7 +55,9 @@ import {
   useSessionStatuses,
   useSessions,
   useAbortSession,
+  useOnlineStatus,
 } from "@/hooks/use-opencode";
+import { useEnqueueMessage, useDiscardQueuedMessage } from "@/hooks/use-outbox";
 import {
   getDefaultUserSelectableAgentName,
   isValidUserSelectableAgent,
@@ -546,8 +545,7 @@ function SessionStatusBanner({ status }: { status?: SessionStatus }) {
   const seconds = useRetryCountdown(retry?.next);
 
   if (retry) {
-    const delay =
-      seconds > 0 ? `Retrying in ${seconds}s` : "Retrying";
+    const delay = seconds > 0 ? `Retrying in ${seconds}s` : "Retrying";
     const detail = `${delay} · attempt #${retry.attempt}`;
     const action =
       "action" in retry
@@ -1098,9 +1096,7 @@ const ToolCallGroup = memo(function ToolCallGroup({
           <span className="shrink-0 opacity-60">{toolNames.join(", ")}</span>
         )}
         {failed.length > 0 && (
-          <span className="shrink-0 text-danger">
-            {failed.length} failed
-          </span>
+          <span className="shrink-0 text-danger">{failed.length} failed</span>
         )}
       </button>
       {open && (
@@ -1132,6 +1128,7 @@ const MessageItem = memo(function MessageItem({
   pendingQuestions,
   onPermissionResolved,
   onQuestionResolved,
+  onDiscardQueued,
 }: {
   message: MessageWithParts;
   port: number;
@@ -1142,6 +1139,7 @@ const MessageItem = memo(function MessageItem({
   pendingQuestions: QuestionRequest[];
   onPermissionResolved: (requestId: string) => void;
   onQuestionResolved: (requestId: string) => void;
+  onDiscardQueued?: (messageId: string) => void;
 }) {
   const textContent = getMessageContent(message.parts);
   const isAssistant = message.info.role === "assistant";
@@ -1169,9 +1167,16 @@ const MessageItem = memo(function MessageItem({
               that no amount of scrolling would bring back into view. */}
           <div className="flex-1 min-w-0">
             {!isAssistant && message.isQueued && (
-              <Badge intent="warning" className="mb-1">
-                Queued
-              </Badge>
+              <div className="mb-1 flex items-center gap-2">
+                <Badge intent="warning">Queued</Badge>
+                <button
+                  type="button"
+                  onClick={() => onDiscardQueued?.(message.info.id)}
+                  className="text-[11px] text-muted-fg underline-offset-2 hover:text-danger hover:underline"
+                >
+                  Cancel
+                </button>
+              </div>
             )}
             <div
               className={`prose prose-sm dark:prose-invert max-w-none break-words ${!isAssistant ? "text-muted-fg" : ""}`}
@@ -1251,7 +1256,12 @@ function hasVisibleContent(message: MessageWithParts): boolean {
 }
 
 type MessageRow =
-  | { kind: "message"; key: string; message: MessageWithParts; showTools: boolean }
+  | {
+      kind: "message";
+      key: string;
+      message: MessageWithParts;
+      showTools: boolean;
+    }
   | { kind: "tools"; key: string; parts: ToolPart[] };
 
 /**
@@ -1275,7 +1285,11 @@ function buildMessageRows(
   const flush = () => {
     if (!run.length) return;
     const first = run[0];
-    rows.push({ kind: "tools", key: `tools-${first.callID || first.id}`, parts: run });
+    rows.push({
+      kind: "tools",
+      key: `tools-${first.callID || first.id}`,
+      parts: run,
+    });
     run = [];
   };
 
@@ -1388,6 +1402,10 @@ function SessionPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
 
+  const { online } = useOnlineStatus();
+  const enqueueMessage = useEnqueueMessage(port, provider, sessionId);
+  const discardQueuedMessage = useDiscardQueuedMessage(port, provider);
+
   const messagesLoadError = messagesError?.message;
 
   const sessionStatus = sessionId
@@ -1402,9 +1420,14 @@ function SessionPage() {
         message.time.completed === undefined &&
         message.content.length > 0,
     );
+    // An in-flight user send — NOT a queued one. Queued messages wait in the
+    // outbox; nothing is running yet, so they shouldn't show the stop button
+    // or the "Thinking…" banner.
     const hasPendingUser = sessionMessages.some(
       (message) =>
-        message.type === "user" && message.metadata?.portalPending === true,
+        message.type === "user" &&
+        message.metadata?.portalPending === true &&
+        message.metadata?.portalQueued !== true,
     );
 
     return isSubmitting || statusActive || hasOpenAssistant || hasPendingUser;
@@ -1540,11 +1563,7 @@ function SessionPage() {
   }, [sessionId]);
 
   const sendMessage = useCallback(
-    async (
-      messageText: string,
-      messageId: string,
-      files: Attachment[],
-    ) => {
+    async (messageText: string, messageId: string, files: Attachment[]) => {
       if (!sessionId || !port) return;
 
       try {
@@ -1635,9 +1654,27 @@ function SessionPage() {
       (!messageText && !outgoingFiles.length) ||
       !sessionId ||
       !port ||
-      sending ||
       submitLockRef.current
     ) {
+      return;
+    }
+
+    // Offline or the model is mid-turn: queue the message instead. The outbox
+    // flushes it automatically once we're back and the session is idle.
+    if (!online || sending) {
+      enqueueMessage({
+        id: createClientMessageId(),
+        sessionId,
+        text: messageText,
+        files: outgoingFiles,
+        agent: selectedAgent,
+        createdAt: Date.now(),
+      });
+      setInput("");
+      clearAttachments();
+      setSendError(null);
+      isNearBottomRef.current = true;
+      scrollToBottom();
       return;
     }
 
@@ -1679,7 +1716,7 @@ function SessionPage() {
             ]
           : []),
       ],
-      isQueued: sending,
+      isQueued: false,
     };
     addOptimisticMessage(port, sessionId, optimisticMessage, provider);
 
@@ -1740,6 +1777,9 @@ function SessionPage() {
                 pendingQuestions={pendingQuestions}
                 onPermissionResolved={handlePermissionResolved}
                 onQuestionResolved={handleQuestionResolved}
+                onDiscardQueued={(messageId) =>
+                  discardQueuedMessage(sessionId, messageId)
+                }
               />
             ) : (
               <div key={row.key} className="py-2 px-3 sm:px-6">
@@ -1882,7 +1922,6 @@ function SessionPage() {
                   e.preventDefault();
                   if (
                     (input.trim() || attachments.length) &&
-                    !sending &&
                     !submitLockRef.current
                   ) {
                     handleSubmit(e as unknown as React.FormEvent);

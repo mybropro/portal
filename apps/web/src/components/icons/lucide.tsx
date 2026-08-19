@@ -6,6 +6,8 @@ import {
   ChevronsUpDown,
   CircleArrowDown,
   CircleArrowUp,
+  Clock,
+  CloudOff,
   Cpu,
   Ellipsis,
   Eye,
@@ -17,10 +19,12 @@ import {
   Globe,
   GripVertical,
   Grid2X2Plus,
+  History,
   Home,
   Info,
   KeyRound,
   LifeBuoy,
+  List,
   LogOut,
   MessageCircle,
   MessageSquare,
@@ -45,6 +49,8 @@ import {
   Sun,
   Trash2,
   User,
+  Wifi,
+  WifiOff,
   X,
 } from "lucide-react";
 
@@ -75,20 +81,26 @@ export const CheckIcon = createAppIcon(Check);
 export const ChevronDownIcon = createAppIcon(ChevronDown);
 export const ChevronRightIcon = createAppIcon(ChevronRight);
 export const ChevronUpDownIcon = createAppIcon(ChevronsUpDown);
+export const ClockIcon = createAppIcon(Clock);
+export const CloudOffIcon = createAppIcon(CloudOff);
 export const Cog6ToothIcon = createAppIcon(Settings);
 export const CpuChipIcon = createAppIcon(Cpu);
 export const DocumentIcon = createAppIcon(FileText);
 export const EllipsisHorizontalIcon = createAppIcon(Ellipsis);
 export const FolderIcon = createAppIcon(Folder);
 export const HomeIcon = createAppIcon(Home);
+export const HistoryIcon = createAppIcon(History);
 export const InformationCircleIcon = createAppIcon(Info);
 export const LifebuoyIcon = createAppIcon(LifeBuoy);
+export const ListIcon = createAppIcon(List);
 export const MinusIcon = createAppIcon(Minus);
 export const PanelLeftIcon = createAppIcon(PanelLeft);
 export const PlusIcon = createAppIcon(Plus);
 export const ShieldCheckIcon = createAppIcon(ShieldCheck);
 export const SwatchIcon = createAppIcon(Palette);
 export const TrashIcon = createAppIcon(Trash2);
+export const WifiIcon = createAppIcon(Wifi);
+export const WifiOffIcon = createAppIcon(WifiOff);
 export const XMarkIcon = createAppIcon(X);
 
 export const IconBadgeSparkle = createAppIcon(Sparkles);

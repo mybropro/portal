@@ -205,7 +205,8 @@ const Sidebar = ({
           aria-label="Sidebar"
           data-slot="sidebar"
           data-intent="default"
-          className="w-(--sidebar-width) entering:blur-in exiting:blur-out [--sidebar-width:18rem] has-data-[slot=calendar]:[--sidebar-width:23rem]"
+          noAnimation
+          className="w-(--sidebar-width) [--sidebar-width:18rem] has-data-[slot=calendar]:[--sidebar-width:23rem]"
           side={side}
         >
           {children}
@@ -230,7 +231,7 @@ const Sidebar = ({
         className={twMerge([
           "w-(--sidebar-width) group-data-[collapsible=hidden]:w-0",
           "group-data-[side=right]:rotate-180",
-          "relative h-svh bg-transparent transition-[width] duration-200 ease-linear",
+          "relative h-svh bg-transparent",
           intent === "default" &&
             "group-data-[collapsible=dock]:w-(--sidebar-width-dock)",
           intent === "float" &&
@@ -244,7 +245,6 @@ const Sidebar = ({
         className={twMerge(
           "fixed inset-y-0 z-10 hidden w-(--sidebar-width) bg-sidebar",
           "not-has-data-[slot=sidebar-footer]:pb-2",
-          "transition-[left,right,width] duration-200 ease-linear",
           "md:flex",
           side === "left" &&
             "left-0 group-data-[collapsible=hidden]:left-[calc(var(--sidebar-width)*-1)]",

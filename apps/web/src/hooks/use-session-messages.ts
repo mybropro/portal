@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import useSWR, { mutate } from "swr";
+import useSWR from "swr";
+import { swrMutate as mutate } from "@/lib/swr";
 import type {
   Message,
   Part,
@@ -135,19 +136,17 @@ export function mutateSessionMessages(
 export function sortSessionMessages(messages: SessionMessage[]) {
   return messages
     .map((message, index) => ({ message, index }))
-    .sort(
-      (a, b) => {
-        const timeDiff = a.message.time.created - b.message.time.created;
-        if (timeDiff !== 0) return timeDiff;
-        if (a.message.type === "user" && b.message.type === "assistant") {
-          return -1;
-        }
-        if (a.message.type === "assistant" && b.message.type === "user") {
-          return 1;
-        }
-        return a.index - b.index;
-      },
-    )
+    .sort((a, b) => {
+      const timeDiff = a.message.time.created - b.message.time.created;
+      if (timeDiff !== 0) return timeDiff;
+      if (a.message.type === "user" && b.message.type === "assistant") {
+        return -1;
+      }
+      if (a.message.type === "assistant" && b.message.type === "user") {
+        return 1;
+      }
+      return a.index - b.index;
+    })
     .map((item) => item.message);
 }
 

@@ -2,6 +2,8 @@ import {
   ChevronUpDownIcon,
   Cog6ToothIcon,
   EllipsisHorizontalIcon,
+  FolderIcon,
+  ListIcon,
   PlusIcon,
   TrashIcon,
 } from "@/components/icons/lucide";
@@ -20,6 +22,10 @@ import {
 import {
   Sidebar,
   SidebarContent,
+  SidebarDisclosure,
+  SidebarDisclosureGroup,
+  SidebarDisclosurePanel,
+  SidebarDisclosureTrigger,
   SidebarFooter,
   SidebarHeader,
   SidebarItem,
@@ -37,7 +43,9 @@ import {
   useHostname,
 } from "@/hooks/use-opencode";
 import { useNewSessionStore } from "@/stores/new-session-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 import { useLocation, useNavigate, useMatch } from "@tanstack/react-router";
+import type { Key } from "react-aria-components";
 import type { Session } from "@opencode-ai/sdk/v2";
 
 function formatDirectoryPath(directory: string): string {
@@ -60,6 +68,75 @@ function truncateTitle(title: string, maxLength = 40): string {
   return `${title.slice(0, halfLength)}...${title.slice(-halfLength)}`;
 }
 
+function sessionDirectory(session: Session): string {
+  const dir = session.directory || "";
+  return formatDirectoryPath(dir) || dir || "Default";
+}
+
+/**
+ * Group sessions by their working directory, preserving newest-first order
+ * within each group. Directory groups themselves sort by most recently used.
+ */
+function groupSessionsByDirectory(
+  sessions: Session[],
+): { directory: string; sessions: Session[] }[] {
+  const groups = new Map<string, Session[]>();
+  for (const session of sessions) {
+    const key = session.directory || "";
+    const list = groups.get(key) ?? [];
+    list.push(session);
+    groups.set(key, list);
+  }
+  return [...groups.entries()]
+    .map(([directory, items]) => ({
+      directory,
+      sessions: items,
+    }))
+    .sort((a, b) => {
+      const aUpdated = a.sessions[0]?.time?.updated ?? 0;
+      const bUpdated = b.sessions[0]?.time?.updated ?? 0;
+      return bUpdated - aUpdated;
+    });
+}
+
+function SessionItem({
+  session,
+  onDelete,
+}: {
+  session: Session;
+  onDelete: () => void;
+}) {
+  return (
+    <SidebarItem key={session.id} tooltip={session.title}>
+      {({ isCollapsed, isFocused }) => (
+        <>
+          <SidebarLink href={`/session/${session.id}`}>
+            <SidebarLabel>{truncateTitle(session.title)}</SidebarLabel>
+          </SidebarLink>
+          {(!isCollapsed || isFocused) && (
+            <Menu>
+              <SidebarMenuTrigger aria-label="Session options">
+                <EllipsisHorizontalIcon />
+              </SidebarMenuTrigger>
+              <MenuContent
+                popover={{
+                  offset: 0,
+                  placement: "right top",
+                }}
+              >
+                <MenuItem intent="danger" onAction={onDelete}>
+                  <TrashIcon />
+                  Delete Session
+                </MenuItem>
+              </MenuContent>
+            </Menu>
+          )}
+        </>
+      )}
+    </SidebarItem>
+  );
+}
+
 export default function AppSidebar(
   props: React.ComponentProps<typeof Sidebar>,
 ) {
@@ -71,9 +148,35 @@ export default function AppSidebar(
   const openPicker = useNewSessionStore((s) => s.openPicker);
   const deleteSession = useDeleteSession();
   const sessions: Session[] = sessionsData ?? [];
-  const { setOpen, setIsOpenOnMobile, isMobile } = useSidebar();
+  const groupByDirectory = usePreferencesStore((s) => s.groupByDirectory);
+  const setGroupByDirectory = usePreferencesStore((s) => s.setGroupByDirectory);
+  const { setOpen, setIsOpenOnMobile, isMobile, state } = useSidebar();
+  const sidebarCollapsed = state === "collapsed" && !isMobile;
   const location = useLocation();
   const lastPath = useRef(location.pathname);
+  const directoryGroups = useMemo(
+    () => groupSessionsByDirectory(sessions),
+    [sessions],
+  );
+  const [expandedDirs, setExpandedDirs] = useState<Set<Key>>(
+    () => new Set(directoryGroups.map((group) => group.directory)),
+  );
+
+  // New directory groups (e.g. sessions loading in for the first time) default
+  // to expanded so the sidebar doesn't open as a wall of collapsed headers.
+  useEffect(() => {
+    setExpandedDirs((prev) => {
+      const known = new Set(prev);
+      let changed = false;
+      for (const group of directoryGroups) {
+        if (!known.has(group.directory)) {
+          known.add(group.directory);
+          changed = true;
+        }
+      }
+      return changed ? known : prev;
+    });
+  }, [directoryGroups]);
 
   // Opening a session gets the sidebar out of the way, the same as creating one
   // does. Keyed off the route rather than the link's onPress: SidebarItem wraps
@@ -127,7 +230,6 @@ export default function AppSidebar(
       </SidebarHeader>
       <SidebarContent>
         <SidebarSectionGroup>
-
           <SidebarSection>
             <SidebarItem
               tooltip="New Session"
@@ -142,40 +244,98 @@ export default function AppSidebar(
           </SidebarSection>
 
           <SidebarSection label="Sessions">
-            {sessions.map((session) => (
-              <SidebarItem key={session.id} tooltip={session.title}>
-                {({ isCollapsed, isFocused }) => (
-                  <>
-                    <SidebarLink href={`/session/${session.id}`}>
-                      <SidebarLabel>
-                        {truncateTitle(session.title)}
-                      </SidebarLabel>
-                    </SidebarLink>
-                    {(!isCollapsed || isFocused) && (
-                      <Menu>
-                        <SidebarMenuTrigger aria-label="Session options">
-                          <EllipsisHorizontalIcon />
-                        </SidebarMenuTrigger>
-                        <MenuContent
-                          popover={{
-                            offset: 0,
-                            placement: "right top",
-                          }}
-                        >
-                          <MenuItem
-                            intent="danger"
-                            onAction={() => handleDeleteSession(session.id)}
-                          >
-                            <TrashIcon />
-                            Delete Session
-                          </MenuItem>
-                        </MenuContent>
-                      </Menu>
+            {!isMobile && !sidebarCollapsed && (
+              <div
+                data-slot="sidebar-section-actions"
+                className="mb-1 flex items-center justify-between"
+              >
+                <span />
+                <Menu>
+                  <MenuTrigger
+                    aria-label="Session list options"
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted-fg opacity-70 transition-opacity hover:bg-sidebar-accent hover:opacity-100"
+                  >
+                    {groupByDirectory ? (
+                      <FolderIcon className="size-4" />
+                    ) : (
+                      <ListIcon className="size-4" />
                     )}
-                  </>
-                )}
-              </SidebarItem>
-            ))}
+                  </MenuTrigger>
+                  <MenuContent
+                    placement="bottom right"
+                    selectionMode="single"
+                    selectedKeys={[groupByDirectory ? "group" : "flat"]}
+                    onSelectionChange={(keys) => {
+                      const key =
+                        typeof keys === "string"
+                          ? keys
+                          : (keys.values().next().value as string | undefined);
+                      setGroupByDirectory(key === "group");
+                    }}
+                  >
+                    <MenuSection label="Session list">
+                      <MenuItem
+                        id="group"
+                        onAction={() => setGroupByDirectory(true)}
+                      >
+                        <FolderIcon className="size-4" />
+                        Group by directory
+                      </MenuItem>
+                      <MenuItem
+                        id="flat"
+                        onAction={() => setGroupByDirectory(false)}
+                      >
+                        <ListIcon className="size-4" />
+                        Flat list
+                      </MenuItem>
+                    </MenuSection>
+                  </MenuContent>
+                </Menu>
+              </div>
+            )}
+
+            {groupByDirectory ? (
+              <SidebarDisclosureGroup
+                expandedKeys={expandedDirs}
+                onExpandedChange={(keys) => setExpandedDirs(new Set(keys))}
+              >
+                {directoryGroups.map((group) => (
+                  <SidebarDisclosure key={group.directory} id={group.directory}>
+                    <SidebarDisclosureTrigger className="gap-2">
+                      <FolderIcon
+                        className="size-4 shrink-0"
+                        data-slot="icon"
+                      />
+                      <SidebarLabel>
+                        <span className="truncate">
+                          {sessionDirectory(group.sessions[0])}
+                        </span>
+                        <span className="ml-1.5 text-xs font-normal text-muted-fg">
+                          {group.sessions.length}
+                        </span>
+                      </SidebarLabel>
+                    </SidebarDisclosureTrigger>
+                    <SidebarDisclosurePanel>
+                      {group.sessions.map((session) => (
+                        <SessionItem
+                          key={session.id}
+                          session={session}
+                          onDelete={() => handleDeleteSession(session.id)}
+                        />
+                      ))}
+                    </SidebarDisclosurePanel>
+                  </SidebarDisclosure>
+                ))}
+              </SidebarDisclosureGroup>
+            ) : (
+              sessions.map((session) => (
+                <SessionItem
+                  key={session.id}
+                  session={session}
+                  onDelete={() => handleDeleteSession(session.id)}
+                />
+              ))
+            )}
           </SidebarSection>
         </SidebarSectionGroup>
       </SidebarContent>
