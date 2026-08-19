@@ -243,22 +243,19 @@ export default function AppSidebar(
             </SidebarItem>
           </SidebarSection>
 
-          <SidebarSection label="Sessions">
-            {!sidebarCollapsed && (
-              <div
-                data-slot="sidebar-section-actions"
-                className="mb-1 flex items-center justify-between"
-              >
-                <span />
+          <SidebarSection
+            label="Sessions"
+            action={
+              !sidebarCollapsed && (
                 <Menu>
                   <MenuTrigger
                     aria-label="Session list options"
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted-fg opacity-70 transition-opacity hover:bg-sidebar-accent hover:opacity-100"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-fg opacity-70 transition-opacity hover:bg-sidebar-accent hover:opacity-100"
                   >
                     {groupByDirectory ? (
-                      <FolderIcon className="size-4" />
+                      <FolderIcon className="size-3.5" />
                     ) : (
-                      <ListIcon className="size-4" />
+                      <ListIcon className="size-3.5" />
                     )}
                   </MenuTrigger>
                   <MenuContent
@@ -291,9 +288,9 @@ export default function AppSidebar(
                     </MenuSection>
                   </MenuContent>
                 </Menu>
-              </div>
-            )}
-
+              )
+            }
+          >
             {groupByDirectory ? (
               <SidebarDisclosureGroup
                 expandedKeys={expandedDirs}

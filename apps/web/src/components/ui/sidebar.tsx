@@ -357,9 +357,15 @@ const SidebarSectionGroup = ({
 
 interface SidebarSectionProps extends React.ComponentProps<"div"> {
   label?: string;
+  /** Rendered on the far right of the section header (e.g. a small menu). */
+  action?: React.ReactNode;
 }
 
-const SidebarSection = ({ className, ...props }: SidebarSectionProps) => {
+const SidebarSection = ({
+  className,
+  action,
+  ...props
+}: SidebarSectionProps) => {
   const { state } = useSidebar();
   return (
     <div
@@ -373,7 +379,8 @@ const SidebarSection = ({ className, ...props }: SidebarSectionProps) => {
     >
       {state !== "collapsed" && "label" in props && (
         <Header className="group-data-[collapsible=dock]:-mt-8 mb-1 flex shrink-0 items-center rounded-md px-2 font-medium text-sidebar-fg/70 text-xs/6 outline-none ring-sidebar-ring transition-[margin,opa] duration-200 ease-linear *:data-[slot=icon]:size-4 *:data-[slot=icon]:shrink-0 group-data-[collapsible=dock]:opacity-0">
-          {props.label}
+          <span className="min-w-0 flex-1 truncate">{props.label}</span>
+          {action}
         </Header>
       )}
       <div
