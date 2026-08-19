@@ -15,6 +15,7 @@ import {
 import {
   ChevronDownIcon,
   ChevronRightIcon,
+  ClockIcon,
   IconBadgeSparkle,
   IconEye,
   IconMagnifier,
@@ -31,6 +32,7 @@ import { AttachmentTray } from "@/components/attachment-tray";
 import { useAttachments, type Attachment } from "@/hooks/use-attachments";
 import { useAgentStore } from "@/stores/agent-store";
 import { useModelStore } from "@/stores/model-store";
+import { usePreferencesStore } from "@/stores/preferences-store";
 import { useBreadcrumb } from "@/contexts/breadcrumb-context";
 import {
   useSessionMessages,
@@ -1405,6 +1407,8 @@ function SessionPage() {
   const { online } = useOnlineStatus();
   const enqueueMessage = useEnqueueMessage(port, provider, sessionId);
   const discardQueuedMessage = useDiscardQueuedMessage(port, provider);
+  const queueMessages = usePreferencesStore((s) => s.queueMessages);
+  const setQueueMessages = usePreferencesStore((s) => s.setQueueMessages);
 
   const messagesLoadError = messagesError?.message;
 
@@ -1659,9 +1663,10 @@ function SessionPage() {
       return;
     }
 
-    // Offline or the model is mid-turn: queue the message instead. The outbox
-    // flushes it automatically once we're back and the session is idle.
-    if (!online || sending) {
+    // Queue when offline, the model is mid-turn, or manual queue mode is on.
+    // The outbox flushes it automatically once we're back and the session is
+    // idle.
+    if (!online || sending || queueMessages) {
       enqueueMessage({
         id: createClientMessageId(),
         sessionId,
@@ -1934,8 +1939,12 @@ function SessionPage() {
                 e.preventDefault();
                 void addFiles(files);
               }}
-              placeholder="Type your message... (use @ to mention files)"
-              className="min-h-32 max-h-32 w-full resize-none overflow-y-auto pr-14 pb-12"
+              placeholder={
+                queueMessages
+                  ? "Type your message... (will be queued)"
+                  : "Type your message... (use @ to mention files)"
+              }
+              className="min-h-32 max-h-32 w-full resize-none overflow-y-auto pr-28 pb-12"
               rows={5}
             />
             <Button
@@ -1949,6 +1958,24 @@ function SessionPage() {
             >
               <span className="grid size-4 place-items-center">
                 <PaperclipIcon size="16px" />
+              </span>
+            </Button>
+            <Button
+              type="button"
+              isCircle
+              size="sq-sm"
+              intent="plain"
+              aria-label={
+                queueMessages ? "Disable message queue" : "Queue messages"
+              }
+              aria-pressed={queueMessages}
+              className={`absolute right-16 bottom-3 ${
+                queueMessages ? "text-primary" : "text-muted-fg hover:text-fg"
+              }`}
+              onPress={() => setQueueMessages(!queueMessages)}
+            >
+              <span className="grid size-4 place-items-center">
+                <ClockIcon size="16px" />
               </span>
             </Button>
             {sending ? (

@@ -1,15 +1,23 @@
 import { create } from "zustand";
 
 const GROUP_BY_DIR_KEY = "portal-group-by-directory";
+const QUEUE_MESSAGES_KEY = "portal-queue-messages";
 
 function readGroupByDirectory(): boolean {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(GROUP_BY_DIR_KEY) === "1";
 }
 
+function readQueueMessages(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(QUEUE_MESSAGES_KEY) === "1";
+}
+
 interface PreferencesState {
   groupByDirectory: boolean;
   setGroupByDirectory: (value: boolean) => void;
+  queueMessages: boolean;
+  setQueueMessages: (value: boolean) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()((set) => ({
@@ -23,5 +31,16 @@ export const usePreferencesStore = create<PreferencesState>()((set) => ({
       }
     }
     set({ groupByDirectory: value });
+  },
+  queueMessages: readQueueMessages(),
+  setQueueMessages: (value) => {
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(QUEUE_MESSAGES_KEY, value ? "1" : "0");
+      } catch {
+        // ignore quota / privacy-mode failures
+      }
+    }
+    set({ queueMessages: value });
   },
 }));
