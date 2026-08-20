@@ -199,8 +199,9 @@ export function useOnlineStatus() {
 
 export function usePermissions() {
   const backend = useBackend();
+  const dirs = dirsQuery(useNewSessionStore((s) => s.recents));
 
-  return useSWR(backend ? `${backend.basePath}/permissions` : null, fetcher);
+  return useSWR(backend ? `${backend.basePath}/permissions${dirs}` : null, fetcher);
 }
 
 export function useQuestions() {

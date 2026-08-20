@@ -51,6 +51,15 @@ export function getOpencodeClient(port: number) {
   return client;
 }
 
+/** Directory-scoped client. Permission / session state is per working directory. */
+export function getOpencodeClientForDirectory(port: number, directory?: string) {
+  if (!directory) return getOpencodeClient(port);
+  return createOpencodeClient({
+    baseUrl: getOpencodeBaseUrl(port),
+    directory,
+  });
+}
+
 export function clearClientCache(port?: number) {
   if (port) {
     clientCache.delete(getOpencodeBaseUrl(port));

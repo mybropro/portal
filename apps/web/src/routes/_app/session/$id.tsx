@@ -65,6 +65,7 @@ import {
   isValidUserSelectableAgent,
 } from "@/lib/agent-selection";
 import { getErrorMessage, getResponseErrorMessage } from "@/lib/error-message";
+import { isUnrecoverableProviderError } from "@/lib/provider-error";
 import {
   backendBasePath,
   OPENCODE_PORT,
@@ -336,6 +337,13 @@ function getToolOutput(part: ToolPart): string | null {
   return null;
 }
 
+function childSessionId(part: ToolPart): string | undefined {
+  const metadata = ((part.state as { metadata?: Record<string, unknown> } | undefined)
+    ?.metadata ?? {}) as Record<string, unknown>;
+  const raw = metadata.sessionId ?? metadata.sessionID ?? metadata.jobId;
+  return typeof raw === "string" && raw.length > 0 ? raw : undefined;
+}
+
 function formatToolCall(part: ToolPart): {
   icon: React.ReactNode;
   label: string;
@@ -407,6 +415,13 @@ function formatToolCall(part: ToolPart): {
         label: "question",
         details:
           count > 0 ? `${count} question${count === 1 ? "" : "s"}` : undefined,
+      };
+    }
+    case "task": {
+      const description = String(input.description || input.prompt || "");
+      return {
+        icon: "◼︎",
+        label: description ? `task ${description}` : "task",
       };
     }
     default: {
@@ -790,12 +805,14 @@ function PermissionRequestForm({
   permission,
   port,
   provider,
+  directory,
   onResolved,
 }: {
   permission: PermissionRequest;
   port: number;
   provider?: BackendProvider;
-  onResolved: (requestId: string) => void;
+  directory?: string;
+  onResolved: (requestIds: string[]) => void;
 }) {
   const [submitting, setSubmitting] = useState<PermissionReply | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -811,7 +828,7 @@ function PermissionRequestForm({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reply }),
+          body: JSON.stringify({ reply, directory }),
         },
       );
 
@@ -819,7 +836,10 @@ function PermissionRequestForm({
         throw new Error("Failed to reply to permission request");
       }
 
-      onResolved(permission.id);
+      const payload = (await response.json().catch(() => null)) as
+        | { cleared?: string[] }
+        | null;
+      onResolved(payload?.cleared?.length ? payload.cleared : [permission.id]);
     } catch (err) {
       setSubmitError(
         err instanceof Error ? err.message : "Failed to reply to permission",
@@ -879,6 +899,7 @@ const ToolCallItem = memo(function ToolCallItem({
   port,
   provider,
   sessionId,
+  childStatus,
   pendingQuestions,
   onQuestionResolved,
 }: {
@@ -886,6 +907,7 @@ const ToolCallItem = memo(function ToolCallItem({
   port: number;
   provider?: BackendProvider;
   sessionId: string;
+  childStatus?: SessionStatus;
   pendingQuestions: QuestionRequest[];
   onQuestionResolved: (requestId: string) => void;
 }) {
@@ -894,10 +916,17 @@ const ToolCallItem = memo(function ToolCallItem({
   const questions = isQuestionTool ? parseToolQuestions(part) : [];
   const hasQuestions = questions.length > 0;
   const isCompleted = part.state.status === "completed";
-  const isError = part.state.status === "error";
+  const childRetry = childStatus?.type === "retry" ? childStatus : undefined;
+  const childBusy = childStatus?.type === "busy";
+  const fatalRetry =
+    !!childRetry && isUnrecoverableProviderError(childRetry.message);
+  const isError = part.state.status === "error" || fatalRetry;
   const isPending =
-    part.state.status === "pending" || part.state.status === "running";
-  const output = getToolOutput(part);
+    (part.state.status === "pending" || part.state.status === "running") &&
+    !isError;
+  const output =
+    getToolOutput(part) ??
+    (isError && childRetry ? childRetry.message : null);
   const colorClass = isError
     ? "text-danger"
     : isCompleted
@@ -949,7 +978,10 @@ const ToolCallItem = memo(function ToolCallItem({
 
   if (output) {
     return (
-      <details className={`group font-mono text-xs ${colorClass}`}>
+      <details
+        open={isError || undefined}
+        className={`group font-mono text-xs ${colorClass}`}
+      >
         <summary className="flex items-start gap-1.5 py-0.5 min-w-0 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
           <span className="opacity-60 shrink-0 mt-px">
             <ChevronRightIcon
@@ -961,9 +993,14 @@ const ToolCallItem = memo(function ToolCallItem({
           <span className="flex-1 min-w-0 whitespace-pre-wrap break-words">
             {label}
             {details && <span className="opacity-60"> {details}</span>}
+            {isError && <span className="text-danger"> failed</span>}
           </span>
         </summary>
-        <pre className="mt-1 ml-6 max-h-72 overflow-auto whitespace-pre-wrap break-words">
+        <pre
+          className={`mt-1 ml-6 max-h-72 overflow-auto whitespace-pre-wrap break-words ${
+            isError ? "text-danger" : ""
+          }`}
+        >
           {output}
         </pre>
       </details>
@@ -978,7 +1015,18 @@ const ToolCallItem = memo(function ToolCallItem({
       <span className="flex-1 min-w-0 whitespace-pre-wrap break-words">
         {label}
         {details && <span className="opacity-60"> {details}</span>}
-        {isPending && <span className="animate-pulse"> ...</span>}
+        {isPending && (
+          <span className="animate-pulse">
+            {" "}
+            {childBusy ? "running" : "..."}
+          </span>
+        )}
+        {childRetry && (
+          <span className="text-danger">
+            {" "}
+            retry #{childRetry.attempt}
+          </span>
+        )}
       </span>
     </div>
   );
@@ -1048,6 +1096,7 @@ const ToolCallGroup = memo(function ToolCallGroup({
   port,
   provider,
   sessionId,
+  childStatuses,
   pendingQuestions,
   onQuestionResolved,
 }: {
@@ -1055,6 +1104,7 @@ const ToolCallGroup = memo(function ToolCallGroup({
   port: number;
   provider?: BackendProvider;
   sessionId: string;
+  childStatuses?: Record<string, SessionStatus>;
   pendingQuestions: QuestionRequest[];
   onQuestionResolved: (requestId: string) => void;
 }) {
@@ -1110,6 +1160,7 @@ const ToolCallGroup = memo(function ToolCallGroup({
               port={port}
               provider={provider}
               sessionId={sessionId}
+              childStatus={childStatuses?.[childSessionId(part) ?? ""]}
               pendingQuestions={pendingQuestions}
               onQuestionResolved={onQuestionResolved}
             />
@@ -1125,9 +1176,11 @@ const MessageItem = memo(function MessageItem({
   port,
   provider,
   sessionId,
+  directory,
   showTools = true,
   pendingPermissions,
   pendingQuestions,
+  childStatuses,
   onPermissionResolved,
   onQuestionResolved,
   onDiscardQueued,
@@ -1136,10 +1189,12 @@ const MessageItem = memo(function MessageItem({
   port: number;
   provider?: BackendProvider;
   sessionId: string;
+  directory?: string;
   showTools?: boolean;
   pendingPermissions: PermissionRequest[];
   pendingQuestions: QuestionRequest[];
-  onPermissionResolved: (requestId: string) => void;
+  childStatuses?: Record<string, SessionStatus>;
+  onPermissionResolved: (requestIds: string[]) => void;
   onQuestionResolved: (requestId: string) => void;
   onDiscardQueued?: (messageId: string) => void;
 }) {
@@ -1212,6 +1267,7 @@ const MessageItem = memo(function MessageItem({
               port={port}
               provider={provider}
               sessionId={sessionId}
+              childStatus={childStatuses?.[childSessionId(part) ?? ""]}
               pendingQuestions={pendingQuestions}
               onQuestionResolved={onQuestionResolved}
             />
@@ -1227,6 +1283,7 @@ const MessageItem = memo(function MessageItem({
               permission={permission}
               port={port}
               provider={provider}
+              directory={directory}
               onResolved={onPermissionResolved}
             />
           ))}
@@ -1467,10 +1524,11 @@ function SessionPage() {
   );
 
   const handlePermissionResolved = useCallback(
-    (requestId: string) => {
+    (requestIds: string[]) => {
+      const cleared = new Set(requestIds);
       void mutatePermissions(
         (current: PermissionRequest[] | undefined) =>
-          (current ?? []).filter((permission) => permission.id !== requestId),
+          (current ?? []).filter((permission) => !cleared.has(permission.id)),
         { revalidate: false },
       );
       if (port && sessionId) {
@@ -1777,9 +1835,11 @@ function SessionPage() {
                 port={port}
                 provider={provider}
                 sessionId={sessionId}
+                directory={currentSession?.directory}
                 showTools={row.showTools}
                 pendingPermissions={pendingPermissions}
                 pendingQuestions={pendingQuestions}
+                childStatuses={sessionStatusesData}
                 onPermissionResolved={handlePermissionResolved}
                 onQuestionResolved={handleQuestionResolved}
                 onDiscardQueued={(messageId) =>
@@ -1793,6 +1853,7 @@ function SessionPage() {
                   port={port}
                   provider={provider}
                   sessionId={sessionId}
+                  childStatuses={sessionStatusesData}
                   pendingQuestions={pendingQuestions}
                   onQuestionResolved={handleQuestionResolved}
                 />
@@ -1807,6 +1868,7 @@ function SessionPage() {
                   permission={permission}
                   port={port}
                   provider={provider}
+                  directory={currentSession?.directory}
                   onResolved={handlePermissionResolved}
                 />
               ))}

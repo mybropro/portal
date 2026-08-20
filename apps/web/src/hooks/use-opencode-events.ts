@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { swrMutate as mutate } from "@/lib/swr";
+import { swrCache, swrMutate as mutate } from "@/lib/swr";
 import type {
   Event,
   Message,
@@ -23,6 +23,10 @@ import {
   sortSessionMessages,
 } from "@/hooks/use-session-messages";
 import { getErrorMessage } from "@/lib/error-message";
+import {
+  isAbortNoise,
+  isUnrecoverableProviderError,
+} from "@/lib/provider-error";
 import { backendBasePath, type BackendProvider } from "@/lib/backend-url";
 import { dirsQuery, useNewSessionStore } from "@/stores/new-session-store";
 
@@ -46,7 +50,7 @@ function sessionsKey(port: number, provider?: BackendProvider) {
 }
 
 function permissionsKey(port: number, provider?: BackendProvider) {
-  return `${backendBasePath(provider, port)}/permissions`;
+  return `${backendBasePath(provider, port)}/permissions${currentDirsQuery()}`;
 }
 
 function questionsKey(port: number, provider?: BackendProvider) {
@@ -149,12 +153,107 @@ function mutateMessages(
   );
 }
 
+const rememberedTaskErrors = new Map<string, string>();
+
+function rememberTaskError(childID: string, message: string) {
+  if (!message || isAbortNoise(message)) return;
+  rememberedTaskErrors.set(childID, message);
+}
+
+function restoreRememberedTaskErrors(
+  port: number,
+  provider: BackendProvider | undefined,
+  sessionID: string,
+) {
+  for (const [childID, message] of rememberedTaskErrors) {
+    failParentTask(port, provider, sessionID, childID, message);
+  }
+}
+
 function revalidateMessages(
   port: number,
   provider: BackendProvider | undefined,
   sessionID: string,
 ) {
-  void mutate(getMessagesKey(port, sessionID, provider));
+  void mutate(getMessagesKey(port, sessionID, provider)).then(() => {
+    restoreRememberedTaskErrors(port, provider, sessionID);
+  });
+}
+
+function cachedSessions(
+  port: number,
+  provider: BackendProvider | undefined,
+): Session[] {
+  return (
+    (swrCache.get(sessionsKey(port, provider))?.data as Session[] | undefined) ??
+    []
+  );
+}
+
+function parentSessionID(
+  port: number,
+  provider: BackendProvider | undefined,
+  sessionID: string,
+) {
+  return cachedSessions(port, provider).find((session) => session.id === sessionID)
+    ?.parentID;
+}
+
+function taskChildId(tool: SessionMessageAssistantTool): string | undefined {
+  const structured =
+    "structured" in tool.state
+      ? (tool.state.structured as Record<string, unknown> | undefined)
+      : undefined;
+  const raw =
+    structured?.sessionId ??
+    structured?.sessionID ??
+    structured?.jobId;
+  return typeof raw === "string" && raw.length > 0 ? raw : undefined;
+}
+
+function failParentTask(
+  port: number,
+  provider: BackendProvider | undefined,
+  parentID: string,
+  childID: string,
+  errorMessage: string,
+) {
+  rememberTaskError(childID, errorMessage);
+  mutateMessages(port, provider, parentID, (items) =>
+    items.map((item) => {
+      if (item.type !== "assistant") return item;
+      let changed = false;
+      const content = item.content.map((part) => {
+        if (part.type !== "tool") return part;
+        if (part.state.status === "completed") return part;
+        if (taskChildId(part) !== childID) return part;
+        const existing =
+          part.state.status === "error"
+            ? getErrorMessage(part.state.error)
+            : null;
+        if (existing && !isAbortNoise(existing)) return part;
+        if (isAbortNoise(errorMessage)) return part;
+        changed = true;
+        return {
+          ...part,
+          state: {
+            status: "error" as const,
+            input: part.state.input ?? {},
+            structured:
+              "structured" in part.state ? (part.state.structured ?? {}) : {},
+            content: [],
+            error: { type: "unknown" as const, message: errorMessage },
+          },
+          time: {
+            ...part.time,
+            completed: Date.now(),
+          },
+        };
+      });
+      if (!changed) return item;
+      return { ...item, content };
+    }),
+  );
 }
 
 const messageRevalidationTimers = new Map<
@@ -507,16 +606,40 @@ function applyEvent(
       });
       break;
 
-    case "session.status":
+    case "session.status": {
+      const status = event.properties.status;
+      const retryMessage =
+        status.type === "retry" ? status.message : undefined;
       setStreaming(
         event.properties.sessionID,
-        event.properties.status.type !== "idle",
+        status.type !== "idle" && !isUnrecoverableProviderError(retryMessage),
       );
       mutateSessionStatuses(port, provider, (items) => ({
         ...items,
-        [event.properties.sessionID]: event.properties.status,
+        [event.properties.sessionID]: status,
       }));
+      if (isUnrecoverableProviderError(retryMessage)) {
+        const parentID = parentSessionID(
+          port,
+          provider,
+          event.properties.sessionID,
+        );
+        if (parentID && retryMessage) {
+          failParentTask(
+            port,
+            provider,
+            parentID,
+            event.properties.sessionID,
+            retryMessage,
+          );
+        }
+        void fetch(
+          `${backendBasePath(provider, port)}/session/${event.properties.sessionID}/abort`,
+          { method: "POST" },
+        ).catch(() => undefined);
+      }
       break;
+    }
 
     case "session.idle":
       // Clear the streaming flag first so the reconcile below is allowed
@@ -527,6 +650,16 @@ function applyEvent(
         [event.properties.sessionID]: { type: "idle" },
       }));
       revalidateMessagesNow(port, provider, event.properties.sessionID);
+      {
+        const parentID = parentSessionID(
+          port,
+          provider,
+          event.properties.sessionID,
+        );
+        if (parentID) {
+          restoreRememberedTaskErrors(port, provider, parentID);
+        }
+      }
       break;
 
     case "session.next.agent.switched":
@@ -903,9 +1036,18 @@ function applyEvent(
       mutateMessages(port, provider, event.properties.sessionID, (items) =>
         updateActiveAssistant(items, (assistant) =>
           updateLatestTool(assistant, event.properties.callID, (tool) => {
+            const incoming = getErrorMessage(event.properties.error);
+            const existing =
+              tool.state.status === "error"
+                ? getErrorMessage(tool.state.error)
+                : null;
+            if (existing && !isAbortNoise(existing) && isAbortNoise(incoming)) {
+              return tool;
+            }
             const input =
               tool.state.status === "running" ||
-              tool.state.status === "completed"
+              tool.state.status === "completed" ||
+              tool.state.status === "error"
                 ? tool.state.input
                 : {};
             const structured =
@@ -1104,6 +1246,16 @@ function applyEvent(
       }
 
       revalidateMessages(port, provider, sessionID);
+
+      const parentID = parentSessionID(port, provider, sessionID);
+      if (
+        parentID &&
+        errorMessage &&
+        errorName !== "MessageAbortedError" &&
+        !isAbortNoise(errorMessage)
+      ) {
+        failParentTask(port, provider, parentID, sessionID, errorMessage);
+      }
       break;
     }
 
