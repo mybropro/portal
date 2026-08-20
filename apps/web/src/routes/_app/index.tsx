@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useBreadcrumb } from "@/contexts/breadcrumb-context";
 import {
   useSessions,
   useDeleteSession,
+  useArchiveSessions,
   useSessionStatuses,
 } from "@/hooks/use-opencode";
 import { useNewSessionStore } from "@/stores/new-session-store";
@@ -17,6 +18,7 @@ import {
 } from "@/components/ui/menu";
 import { toast } from "@/components/ui/toast";
 import {
+  ArchiveIcon,
   PlusIcon,
   EllipsisHorizontalIcon,
   TrashIcon,
@@ -133,8 +135,10 @@ function SessionsPage() {
   const { data, error, isLoading, mutate } = useSessions();
   const { data: statuses } = useSessionStatuses();
   const deleteSession = useDeleteSession();
+  const archiveSessions = useArchiveSessions();
   const openPicker = useNewSessionStore((s) => s.openPicker);
   const navigate = useNavigate();
+  const [archiving, setArchiving] = useState(false);
 
   useEffect(() => {
     setPageTitle(null);
@@ -163,6 +167,46 @@ function SessionsPage() {
     }
   }
 
+  const idleSessions = sessions.filter(
+    (session) => !isWorking(statuses?.[session.id]),
+  );
+
+  async function handleArchiveAll() {
+    if (idleSessions.length === 0 || archiving) return;
+    setArchiving(true);
+    try {
+      const result = await archiveSessions(
+        idleSessions.map((session) => ({
+          id: session.id,
+          directory: session.directory,
+        })),
+      );
+      await mutate(
+        (current: Session[] | undefined) =>
+          (current ?? []).filter(
+            (session) => !result.archived.includes(session.id),
+          ),
+        { revalidate: true },
+      );
+      if (result.failed.length) {
+        toast.error(
+          `Archived ${result.archived.length}, ${result.failed.length} failed`,
+        );
+      } else {
+        toast.success(
+          result.archived.length === 1
+            ? "Archived 1 session"
+            : `Archived ${result.archived.length} sessions`,
+        );
+      }
+    } catch (err) {
+      console.error("Failed to archive sessions:", err);
+      toast.error("Failed to archive sessions");
+    } finally {
+      setArchiving(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-2xl px-4 pb-28 pt-4">
       {isLoading && (
@@ -183,6 +227,22 @@ function SessionsPage() {
           <Button intent="outline" onPress={openPicker}>
             <PlusIcon className="size-4" />
             Start your first session
+          </Button>
+        </div>
+      )}
+
+      {!isLoading && !error && idleSessions.length > 0 && (
+        <div className="mb-4 flex justify-end">
+          <Button
+            intent="outline"
+            size="sm"
+            isDisabled={archiving}
+            onPress={handleArchiveAll}
+          >
+            <ArchiveIcon className="size-4" />
+            {archiving
+              ? "Archiving…"
+              : `Archive all${idleSessions.length !== sessions.length ? ` (${idleSessions.length})` : ""}`}
           </Button>
         </div>
       )}

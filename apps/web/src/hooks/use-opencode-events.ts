@@ -595,11 +595,17 @@ function applyEvent(
       break;
 
     case "session.created":
-    case "session.updated":
+    case "session.updated": {
+      const info = event.properties.info;
+      if (info.time?.archived) {
+        mutateSessions(port, provider, (items) => removeById(items, info.id));
+        break;
+      }
       mutateSessions(port, provider, (items) =>
-        sortSessions(upsertById(items, event.properties.info)),
+        sortSessions(upsertById(items, info)),
       );
       break;
+    }
 
     case "session.deleted":
       mutateSessions(port, provider, (items) =>

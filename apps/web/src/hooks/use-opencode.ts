@@ -140,6 +140,26 @@ export function useDeleteSession() {
   };
 }
 
+export function useArchiveSessions() {
+  const backend = useBackend();
+
+  return async (sessions: { id: string; directory?: string }[]) => {
+    if (!backend) throw new Error("No instance selected");
+
+    const res = await fetch(`${backend.basePath}/sessions/archive`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessions }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to archive sessions: ${res.status}`);
+    }
+
+    return res.json() as Promise<{ archived: string[]; failed: string[] }>;
+  };
+}
+
 /**
  * Whether the browser believes it has network connectivity. localStorage-backed
  * SWR caching makes the UI usable while offline, so a thin offline banner
