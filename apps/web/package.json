@@ -9,7 +9,7 @@
   "dependencies": {
     "@fontsource-variable/geist-mono": "^5.2.7",
     "@fontsource/geist-sans": "^5.2.5",
-    "@opencode-ai/sdk": "1.14.41",
+    "@opencode-ai/sdk": "1.18.19",
     "@tanstack/react-router": "^1.169.2",
     "ldrs": "^1.1.9",
     "lucide-react": "^1.14.0",

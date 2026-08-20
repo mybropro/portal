@@ -39,7 +39,7 @@
       "dependencies": {
         "@fontsource-variable/geist-mono": "^5.2.7",
         "@fontsource/geist-sans": "^5.2.5",
-        "@opencode-ai/sdk": "1.14.41",
+        "@opencode-ai/sdk": "1.18.19",
         "@tanstack/react-router": "^1.169.2",
         "ldrs": "^1.1.9",
         "lucide-react": "^1.14.0",
@@ -329,7 +329,7 @@
 
     "@nolyfill/is-core-module": ["@nolyfill/is-core-module@1.0.39", "", {}, "sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA=="],
 
-    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.14.41", "", { "dependencies": { "cross-spawn": "7.0.6" } }, "sha512-RYb2dCUv0TWIvBNnnO6ANbAPYri6rKuWizSoVFw/Pw+SCDj9ASHM5gAZ+jkskp8gYMfLLHe/Fpkun/9mr8m0IQ=="],
+    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.18.19", "", { "dependencies": { "cross-spawn": "7.0.6" } }, "sha512-AnszRg7cJ3PA6/06mkqdTJDKn9NJuV26AJMWbKEgRsznbJvrhf3PT8UhQQOhyKQYCygx9ZOxyKMIPVOQdMSS1A=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.129.0", "", {}, "sha512-3oz8m3FGdr2nDXVqmFUw7jolKliC4MoyXYIG2c7gpjBnzUWQpUGIYcXYKxTdTi+N2jusvt610ckTMkxdwHkYEg=="],
 

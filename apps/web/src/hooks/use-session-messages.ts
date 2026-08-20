@@ -311,9 +311,7 @@ export type AssistantContentItem = SessionMessageAssistant["content"][number];
 
 /**
  * The part id a content item came from. Streaming deltas address parts by id,
- * so every item has to be traceable back to one. `reasoning` and `tool` carry
- * an id in the SDK type already; `text` does not, so `legacyPartToContent`
- * attaches one and this reads it back.
+ * so every item has to be traceable back to one.
  */
 export function contentItemPartId(item: AssistantContentItem) {
   return (item as { id?: string }).id;
@@ -347,7 +345,13 @@ export function legacyPartToContent(
       name: part.tool,
       provider: {
         executed: part.state.status !== "pending",
-        metadata: part.metadata,
+        ...(part.metadata
+          ? {
+              metadata: part.metadata as {
+                [key: string]: { [key: string]: unknown };
+              },
+            }
+          : {}),
       },
       time: legacyToolTime(part, fallbackTime),
       state: legacyToolStateToSession(part.state),
@@ -472,7 +476,7 @@ function legacyAssistantInfo(
     parentID: "",
     modelID: message.model.id,
     providerID: message.model.providerID,
-    mode: message.model.variant,
+    mode: message.model.variant ?? "",
     agent: message.agent,
     path: {
       cwd: "",
@@ -827,6 +831,7 @@ export function sessionMessagesToLegacy(
         case "agent-switched":
         case "model-switched":
         case "compaction":
+        case "system":
           return [];
       }
     },

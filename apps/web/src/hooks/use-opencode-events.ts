@@ -238,7 +238,10 @@ function failParentTask(
           ...part,
           state: {
             status: "error" as const,
-            input: part.state.input ?? {},
+            input:
+              typeof part.state.input === "object" && part.state.input
+                ? part.state.input
+                : {},
             structured:
               "structured" in part.state ? (part.state.structured ?? {}) : {},
             content: [],
@@ -360,8 +363,11 @@ function latestToolIndex(assistant: SessionMessageAssistant, callID?: string) {
   );
 }
 
-function latestTextIndex(assistant: SessionMessageAssistant) {
-  return findLastIndex(assistant.content, (item) => item.type === "text");
+function latestTextIndex(assistant: SessionMessageAssistant, textID?: string) {
+  return findLastIndex(
+    assistant.content,
+    (item) => item.type === "text" && (textID === undefined || item.id === textID),
+  );
 }
 
 function latestReasoningIndex(
@@ -816,6 +822,7 @@ function applyEvent(
       mutateMessages(port, provider, event.properties.sessionID, (items) =>
         appendAssistantContent(items, {
           type: "text",
+          id: event.properties.textID,
           text: "",
         }),
       );
@@ -824,7 +831,7 @@ function applyEvent(
     case "session.next.text.delta":
       mutateMessages(port, provider, event.properties.sessionID, (items) =>
         updateActiveAssistant(items, (assistant) => {
-          const textIndex = latestTextIndex(assistant);
+          const textIndex = latestTextIndex(assistant, event.properties.textID);
           if (textIndex < 0) return assistant;
 
           const text = assistant.content[textIndex];
@@ -843,7 +850,7 @@ function applyEvent(
     case "session.next.text.ended":
       mutateMessages(port, provider, event.properties.sessionID, (items) =>
         updateActiveAssistant(items, (assistant) => {
-          const textIndex = latestTextIndex(assistant);
+          const textIndex = latestTextIndex(assistant, event.properties.textID);
           if (textIndex < 0) return assistant;
 
           const text = assistant.content[textIndex];
@@ -1093,6 +1100,7 @@ function applyEvent(
           type: "compaction",
           reason: event.properties.reason,
           summary: "",
+          recent: "",
           time: {
             created: event.properties.timestamp,
           },
@@ -1130,9 +1138,7 @@ function applyEvent(
         return replaceMessageAt(items, index, {
           ...compaction,
           summary: event.properties.text,
-          ...(event.properties.include
-            ? { include: event.properties.include }
-            : {}),
+          recent: event.properties.recent,
         });
       });
       break;
